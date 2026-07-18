@@ -40,11 +40,6 @@ owner_id = None
 my_channels = []
 seen_messages = set()
 
-# Load owner_id from settings if saved
-_saved_settings = load_settings()
-if _saved_settings.get("owner_id"):
-    owner_id = _saved_settings["owner_id"]
-
 
 # ============ SETTINGS ============
 def load_settings():
@@ -81,6 +76,11 @@ def save_settings(s):
 
 
 settings = load_settings()
+
+# Load owner_id from settings
+if settings.get("owner_id"):
+    owner_id = settings["owner_id"]
+    logger.info(f"Loaded owner: {owner_id}")
 
 
 # ============ ALERTS ============
