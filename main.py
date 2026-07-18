@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 from aiohttp import web
 from telethon import TelegramClient, events, Button
+from telethon.sessions import StringSession
 
 # ============ LOGGING ============
 logging.basicConfig(
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 API_ID = int(os.getenv('API_ID', '0'))
 API_HASH = os.getenv('API_HASH', '')
 BOT_TOKEN = os.getenv('BOT_TOKEN', '')
+SESSION_STRING = os.getenv('SESSION_STRING', '')
 
 if not API_ID or not API_HASH or not BOT_TOKEN:
     logger.error("Missing credentials! Set API_ID, API_HASH, BOT_TOKEN")
@@ -32,7 +34,12 @@ SETTINGS_FILE = Path("settings.json")
 ALERTS_FILE = Path("alerts.json")
 
 # ============ CLIENTS ============
-user_client = TelegramClient('session_user', API_ID, API_HASH)
+if SESSION_STRING:
+    user_client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+    logger.info("Using StringSession")
+else:
+    user_client = TelegramClient('session_user', API_ID, API_HASH)
+    logger.info("Using file session")
 bot_client = TelegramClient('session_bot', API_ID, API_HASH)
 
 # ============ GLOBALS ============
