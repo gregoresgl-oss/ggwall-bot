@@ -228,14 +228,20 @@ async def on_new_message(event):
             link = f"https://t.me/c/{clean_id}/{event.message.id}"
 
         # Build alert message
-        parts = [f"🔔 **Ειδοποίηση!**\n\n**Κανάλι:** {real_title}"]
+        parts = [
+            "━━━━━━━━━━━━━━━━━━━━",
+            "🔔  **ΕΙΔΟΠΟΙΗΣΗ!**",
+            "━━━━━━━━━━━━━━━━━━━━",
+            f"\n📡  **Κανάλι:**  {real_title}"
+        ]
         if found_keywords:
-            parts.append(f"**Λέξεις:** {', '.join(found_keywords)}")
+            parts.append(f"🔍  **Λέξεις:**  {', '.join(found_keywords)}")
         if found_buttons:
-            parts.append(f"🖱️ **Buttons:** {', '.join(b.text for b in found_buttons)}")
+            parts.append(f"🖱️  **Buttons:**  {', '.join(b.text for b in found_buttons)}")
         if msg_text:
-            parts.append(f"\n**Μήνυμα:**\n{msg_text[:300]}")
-        parts.append(f"\n**Link:** {link}")
+            parts.append(f"\n💬  **Μήνυμα:**\n{msg_text[:300]}")
+        parts.append(f"\n🔗  **Link:**  {link}")
+        parts.append("━━━━━━━━━━━━━━━━━━━━")
 
         alert_msg = "\n".join(parts)
 
@@ -260,7 +266,9 @@ async def on_new_message(event):
                     clicked = True
                     await bot_client.send_message(
                         owner_id,
-                        f"🖱️ **Auto-clicked:** {btn.text} (σε {click_time})"
+                        f"✅  **AUTO-CLICK ΕΠΙΤΥΧΕΣ!**\n\n"
+                        f"🖱️  Πατήθηκε:  **{btn.text}**\n"
+                        f"⏱️  Χρόνος:  **{click_time}**"
                     )
                     logger.info(f"🖱️ Clicked: {btn.text} in {click_time}")
                 except Exception as e:
@@ -290,9 +298,9 @@ user_states = {}
 def menu_buttons():
     return [
         [Button.inline("📋 Λέξεις", b"keywords"), Button.inline("📡 Κανάλια", b"channels")],
-        [Button.inline("🖱️ Buttons", b"clickwords"), Button.inline("📊 Status", b"status")],
-        [Button.inline("⚡ Auto-Click: " + ("✅" if settings.get("auto_click") else "❌"), b"toggle_ac")],
-        [Button.inline("🎯 Buttons Only: " + ("✅" if settings.get("buttons_only") else "❌"), b"toggle_bo")],
+        [Button.inline("🖱️ Button Words", b"clickwords"), Button.inline("📊 Status", b"status")],
+        [Button.inline("⚡ Auto-Click: " + ("✅ ON" if settings.get("auto_click") else "❌ OFF"), b"toggle_ac")],
+        [Button.inline("🎯 Buttons Only: " + ("✅ ON" if settings.get("buttons_only") else "❌ OFF"), b"toggle_bo")],
         [Button.inline("🧪 Test", b"test"), Button.inline("🔄 Refresh", b"refresh")]
     ]
 
@@ -306,7 +314,12 @@ async def cmd_start(event):
         save_settings(settings)
         logger.info(f"Owner: {owner_id}")
         await event.respond(
-            "🤖 **GGWALL Monitor v2.0**\n\n🔔 Alerts ΕΔΩ!\n📱 Menu → Mini App\n\nΕπίλεξε:",
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "🤖  **GGWALL Monitor v2.0**\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "🔔  Alerts θα έρχονται ΕΔΩ\n"
+            "⚡  Auto-Click σε 0.3 δευτ.\n\n"
+            "Επίλεξε ρύθμιση:",
             buttons=menu_buttons()
         )
     except Exception as e:
@@ -360,14 +373,19 @@ async def on_callback(event):
 
         elif data == "status":
             cw = ", ".join(settings.get("click_words", [])) or "-"
+            kw = ", ".join(settings.get("keywords", [])) or "-"
+            ch = ", ".join(settings.get("channels", [])) or "-"
             text = (
-                f"📊 **Status**\n\n"
-                f"🔍 Λέξεις: {len(settings.get('keywords', []))}\n"
-                f"📡 Κανάλια: {len(settings.get('channels', []))}\n"
-                f"🖱️ Buttons: {cw}\n"
-                f"⚡ Auto-Click: {'✅' if settings.get('auto_click') else '❌'}\n"
-                f"🎯 Buttons Only: {'✅' if settings.get('buttons_only') else '❌'}\n"
-                f"🟢 Bot: Ενεργό"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "📊  **STATUS**\n"
+                "━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"🟢  **Bot:**  Online\n\n"
+                f"📡  **Κανάλια:**  {ch}\n\n"
+                f"🔍  **Λέξεις:**  {kw}\n\n"
+                f"🖱️  **Button Words:**  {cw}\n\n"
+                f"⚡  **Auto-Click:**  {'✅ ON' if settings.get('auto_click') else '❌ OFF'}\n"
+                f"🎯  **Buttons Only:**  {'✅ ON' if settings.get('buttons_only') else '❌ OFF'}\n"
+                "━━━━━━━━━━━━━━━━━━━━"
             )
             await event.edit(text, buttons=[[Button.inline("← Πίσω", b"back")]])
 
@@ -480,7 +498,13 @@ async def on_callback(event):
             await event.edit(text, buttons=btns)
 
         elif data == "back":
-            await event.edit("🤖 **Μενού**\n\nΕπίλεξε:", buttons=menu_buttons())
+            await event.edit(
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "🤖  **GGWALL Monitor v2.0**\n"
+                "━━━━━━━━━━━━━━━━━━━━\n\n"
+                "Επίλεξε ρύθμιση:",
+                buttons=menu_buttons()
+            )
 
         await event.answer()
 
@@ -542,11 +566,15 @@ async def send_test_alert():
     try:
         await bot_client.send_message(
             owner_id,
-            "🧪 **TEST ALERT**\n\n"
-            "**Κανάλι:** Test Channel\n"
-            "🖱️ **Buttons:** Claim 0/5\n\n"
-            "**Μήνυμα:**\n🧪 Αυτό είναι test! Αν το βλέπεις, ΟΛΑ δουλεύουν!\n\n"
-            "**Link:** https://t.me/test"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "🧪  **TEST ALERT**\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "📡  **Κανάλι:**  Test Channel\n"
+            "🖱️  **Buttons:**  Claim 0/5\n\n"
+            "💬  **Μήνυμα:**\n"
+            "Αυτό είναι test! Αν το βλέπεις, ΟΛΑ δουλεύουν!\n\n"
+            "🔗  **Link:**  https://t.me/test\n"
+            "━━━━━━━━━━━━━━━━━━━━"
         )
         save_alert({
             "id": int(time.time() * 1000),
