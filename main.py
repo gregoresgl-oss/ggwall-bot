@@ -75,6 +75,7 @@ bot_client = TelegramClient('session_bot', API_ID, API_HASH)
 owner_id = None
 my_channels = []
 seen_messages = set()
+START_TIME = time.time()
 
 # ============ SETTINGS ============
 def load_settings():
@@ -346,11 +347,15 @@ def menu_buttons():
     ]
 
 def menu_text():
-    ac = "ON" if settings.get("auto_click") else "OFF"
-    n = len(settings.get("channels", []))
+    up = int(time.time() - START_TIME)
+    if up < 60:
+        upt = f"{up}s"
+    elif up < 3600:
+        upt = f"{up//60}m"
+    else:
+        upt = f"{up//3600}h {(up%3600)//60}m"
     return (f"⚙️ **GGWALL Monitor** `v3.0`\n"
-            f"🟢 Ενεργό  ·  ⚡ Auto-click {ac}  ·  {n} κανάλια\n"
-            f"─────────────────────\nΕπίλεξε ρύθμιση:")
+            f"🟢 Online · uptime {upt}")
 
 @bot_client.on(events.NewMessage(pattern='/start'))
 async def cmd_start(event):
