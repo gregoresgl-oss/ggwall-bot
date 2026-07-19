@@ -1,21 +1,22 @@
 """
-GGWALL Keyword Monitor Bot v2.1
-Clean design + persistent settings
+GGWALL Keyword Monitor Bot v3.0
+- Persistent data (Railway Volume /app/data)
+- Analytics (claims, win rate, timing)
+- Auto-detect new channels (sends link to you)
+- Edit message detection
 """
 import os
 import asyncio
 import json
 import time
+import re
 import logging
 from pathlib import Path
 from aiohttp import web
 from telethon import TelegramClient, events, Button
 from telethon.sessions import StringSession
 
-logging.basicConfig(
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    level=logging.INFO
-)
+logging.basicConfig(format='%(asctime)s [%(levelname)s] %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ============ CREDENTIALS ============
@@ -28,11 +29,20 @@ if not API_ID or not API_HASH or not BOT_TOKEN:
     logger.error("Missing credentials!")
     exit(1)
 
-# ============ FILES ============
-SETTINGS_FILE = Path("settings.json")
-ALERTS_FILE = Path("alerts.json")
+# ============ DATA DIRECTORY (Railway Volume) ============
+DATA_DIR = Path("/app/data")
+try:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Using persistent volume: {DATA_DIR}")
+except Exception:
+    DATA_DIR = Path(".")
+    logger.info("Volume not available, using local dir")
 
-# ============ DEFAULT SETTINGS ============
+SETTINGS_FILE = DATA_DIR / "settings.json"
+ALERTS_FILE = DATA_DIR / "alerts.json"
+STATS_FILE = DATA_DIR / "stats.json"
+
+# ============ DEFAULTS ============
 DEFAULT_SETTINGS = {
     "keywords": ["giving", "away"],
     "channels": ["atombuilderscommunity", "atomOGchat", "GGWALLMSG"],
@@ -40,7 +50,17 @@ DEFAULT_SETTINGS = {
     "buttons_only": True,
     "click_words": ["claim", "join"],
     "sound": True,
-    "owner_id": None
+    "owner_id": None,
+    "auto_detect": True  # ανίχνευση νέων καναλιών
+}
+
+DEFAULT_STATS = {
+    "total_alerts": 0,
+    "total_clicks": 0,
+    "successful_clicks": 0,
+    "failed_clicks": 0,
+    "fastest_click": None,
+    "channels_detected": []
 }
 
 # ============ CLIENTS ============
@@ -49,14 +69,12 @@ if SESSION_STRING:
     logger.info("Using StringSession")
 else:
     user_client = TelegramClient('session_user', API_ID, API_HASH)
-    logger.info("Using file session")
+
 bot_client = TelegramClient('session_bot', API_ID, API_HASH)
 
-# ============ GLOBALS ============
 owner_id = None
 my_channels = []
 seen_messages = set()
-
 
 # ============ SETTINGS ============
 def load_settings():
@@ -68,24 +86,42 @@ def load_settings():
                     s.setdefault(k, v)
                 return s
     except Exception as e:
-        logger.error(f"Settings load error: {e}")
+        logger.error(f"Settings load: {e}")
     return DEFAULT_SETTINGS.copy()
-
 
 def save_settings(s):
     try:
         with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
             json.dump(s, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        logger.error(f"Settings save error: {e}")
+        logger.error(f"Settings save: {e}")
 
+# ============ STATS ============
+def load_stats():
+    try:
+        if STATS_FILE.exists():
+            with open(STATS_FILE, 'r', encoding='utf-8') as f:
+                s = json.load(f)
+                for k, v in DEFAULT_STATS.items():
+                    s.setdefault(k, v)
+                return s
+    except Exception:
+        pass
+    return DEFAULT_STATS.copy()
+
+def save_stats(s):
+    try:
+        with open(STATS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(s, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"Stats save: {e}")
 
 settings = load_settings()
+stats = load_stats()
 
 if settings.get("owner_id"):
     owner_id = settings["owner_id"]
     logger.info(f"Loaded owner: {owner_id}")
-
 
 # ============ ALERTS ============
 def load_alerts():
@@ -97,64 +133,96 @@ def load_alerts():
         pass
     return []
 
-
-def save_alert(alert_data):
+def save_alert(a):
     try:
         alerts = load_alerts()
-        alerts.insert(0, alert_data)
-        alerts = alerts[:50]
+        alerts.insert(0, a)
+        alerts = alerts[:100]
         with open(ALERTS_FILE, 'w', encoding='utf-8') as f:
             json.dump(alerts, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        logger.error(f"Alert save error: {e}")
-
+        logger.error(f"Alert save: {e}")
 
 # ============ FETCH CHANNELS ============
 async def fetch_my_channels():
     global my_channels
     my_channels = []
     try:
-        async for dialog in user_client.iter_dialogs():
+        async for d in user_client.iter_dialogs():
             try:
-                if not (dialog.is_channel or dialog.is_group):
+                if not (d.is_channel or d.is_group):
                     continue
-                title = getattr(dialog, 'title', '') or ''
-                username = getattr(dialog.entity, 'username', '') or ''
-                my_channels.append({
-                    "title": title,
-                    "username": username,
-                    "id": dialog.id
-                })
+                title = getattr(d, 'title', '') or ''
+                username = getattr(d.entity, 'username', '') or ''
+                my_channels.append({"title": title, "username": username, "id": d.id})
             except Exception:
                 continue
         logger.info(f"Found {len(my_channels)} channels/groups")
     except Exception as e:
-        logger.error(f"Fetch channels error: {e}")
+        logger.error(f"Fetch: {e}")
 
+# ============ AUTO-DETECT LINKS ============
+CHANNEL_LINK_RE = re.compile(r't\.me/(?:joinchat/)?([a-zA-Z0-9_+]+)')
+
+async def check_new_channels(msg_text):
+    """Ψάχνει links για νέα κανάλια στο μήνυμα"""
+    if not settings.get("auto_detect", True):
+        return
+    if not owner_id:
+        return
+    try:
+        matches = CHANNEL_LINK_RE.findall(msg_text or "")
+        for m in matches:
+            # Καθάρισε το link
+            clean = m.strip('+')
+            # Αγνόησε αν είναι ήδη γνωστό
+            known = [c.lower() for c in settings.get("channels", [])]
+            known += [c["username"].lower() for c in my_channels if c["username"]]
+            already_detected = [c.lower() for c in stats.get("channels_detected", [])]
+            if clean.lower() in known or clean.lower() in already_detected:
+                continue
+            # Νέο κανάλι! Στείλε ειδοποίηση
+            stats.setdefault("channels_detected", []).append(clean)
+            save_stats(stats)
+            await bot_client.send_message(
+                owner_id,
+                f"🆕 **Νέο κανάλι εντοπίστηκε!**\n\n"
+                f"📡 `{clean}`\n\n"
+                f"Θέλεις να μπεις; Πάτα το link:",
+                buttons=[[Button.url("🔗 Άνοιξε το κανάλι", f"https://t.me/{m}")]],
+                link_preview=False
+            )
+            logger.info(f"🆕 New channel detected: {clean}")
+    except Exception as e:
+        logger.error(f"Detect error: {e}")
 
 # ============ MONITORING ============
 @user_client.on(events.NewMessage())
 @user_client.on(events.MessageEdited())
-async def on_new_message(event):
-    global settings
+async def on_msg(event):
+    global settings, stats
     try:
         if event.is_private:
-            return
-        if not settings.get("channels"):
             return
         if not owner_id:
             return
 
-        has_keywords = bool(settings.get("keywords"))
-        has_buttons = bool(event.message.buttons)
-        if not has_keywords and not has_buttons:
+        msg_text = event.message.text or ""
+
+        # Auto-detect νέων καναλιών (τρέχει πάντα)
+        await check_new_channels(msg_text)
+
+        if not settings.get("channels"):
+            return
+
+        has_kw = bool(settings.get("keywords"))
+        has_btn = bool(event.message.buttons)
+        if not has_kw and not has_btn:
             return
 
         msg_key = f"{event.chat_id}_{event.message.id}"
-        # Για edited messages: αν το προηγούμενο δεν είχε button αλλά τώρα έχει, ξαναδές το
-        has_button_now = bool(event.message.buttons)
-        dedup_key = f"{msg_key}_btn" if has_button_now else msg_key
-        if dedup_key in seen_messages:
+        dedup = f"{msg_key}_btn" if has_btn else msg_key
+        if dedup in seen_messages:
             return
 
         try:
@@ -162,148 +230,127 @@ async def on_new_message(event):
         except Exception:
             return
 
-        chat_username = (getattr(chat, 'username', '') or '').lower()
-        chat_title = (getattr(chat, 'title', '') or '').lower()
-        chat_id_str = str(event.chat_id)
+        c_user = (getattr(chat, 'username', '') or '').lower()
+        c_title = (getattr(chat, 'title', '') or '').lower()
+        c_id = str(event.chat_id)
 
-        is_monitored = False
+        monitored = False
         for ch in settings["channels"]:
             cl = ch.lower()
-            if cl == chat_username or cl == chat_title or ch == chat_id_str:
-                is_monitored = True
-                break
-            if chat_username and cl in chat_username:
-                is_monitored = True
-                break
-        if not is_monitored:
+            if cl == c_user or cl == c_title or ch == c_id:
+                monitored = True; break
+            if c_user and cl in c_user:
+                monitored = True; break
+        if not monitored:
             return
 
-        msg_text = event.message.text or ""
         msg_lower = msg_text.lower()
-
-        found_keywords = []
-        for kw in settings.get("keywords", []):
-            if kw.lower() in msg_lower:
-                found_keywords.append(kw)
-
-        found_buttons = []
+        found_kw = [k for k in settings.get("keywords", []) if k.lower() in msg_lower]
+        found_btn = []
         if event.message.buttons:
             for row in event.message.buttons:
-                for btn in row:
-                    btn_text = (getattr(btn, 'text', '') or '').lower()
+                for b in row:
+                    bt = (getattr(b, 'text', '') or '').lower()
                     for cw in settings.get("click_words", []):
-                        if cw.lower() in btn_text:
-                            found_buttons.append(btn)
-                            break
+                        if cw.lower() in bt:
+                            found_btn.append(b); break
 
         if settings.get("buttons_only", True):
-            if not found_buttons:
+            if not found_btn:
                 return
         else:
-            if not found_keywords and not found_buttons:
+            if not found_kw and not found_btn:
                 return
 
-        seen_messages.add(dedup_key)
+        seen_messages.add(dedup)
         if len(seen_messages) > 500:
             seen_messages.clear()
 
         real_title = getattr(chat, 'title', 'Unknown')
-        if chat_username:
-            link = f"https://t.me/{chat_username}/{event.message.id}"
+        if c_user:
+            link = f"https://t.me/{c_user}/{event.message.id}"
         else:
-            clean_id = str(event.chat_id).replace("-100", "")
-            link = f"https://t.me/c/{clean_id}/{event.message.id}"
+            link = f"https://t.me/c/{c_id.replace('-100','')}/{event.message.id}"
 
-        # Alert message (new design)
-        has_btn = len(found_buttons) > 0
-        
-        alert_parts = ["🔔 **Νέο match**\n"]
-        alert_parts.append(f"📡 Κανάλι  **{real_title}**")
-        if found_keywords:
-            alert_parts.append(f"🔑 Λέξη  **{', '.join(found_keywords)}**")
-        if found_buttons:
-            alert_parts.append(f"🖱️ Button  **{', '.join(b.text for b in found_buttons)}**")
+        # Stats
+        stats["total_alerts"] = stats.get("total_alerts", 0) + 1
+        save_stats(stats)
+
+        # Alert
+        parts = ["🔔 **Νέο match**\n"]
+        parts.append(f"📡 Κανάλι  **{real_title}**")
+        if found_kw:
+            parts.append(f"🔑 Λέξη  **{', '.join(found_kw)}**")
+        if found_btn:
+            parts.append(f"🖱️ Button  **{', '.join(b.text for b in found_btn)}**")
         if msg_text:
-            alert_parts.append(f"\n> 💬 {msg_text[:250]}")
+            parts.append(f"\n> 💬 {msg_text[:250]}")
 
-        alert_msg = "\n".join(alert_parts)
-
-        # Send with inline button (no raw link, no preview)
-        btn_label = "👁️ Δες το μήνυμα" if has_btn else "🔗 Δες το μήνυμα"
-        alert_buttons = [[Button.url(btn_label, link)]]
-        
+        btn_label = "👁️ Δες το μήνυμα" if found_btn else "🔗 Δες το μήνυμα"
         try:
-            await bot_client.send_message(owner_id, alert_msg, buttons=alert_buttons, link_preview=False)
-            logger.info(f"🔔 Alert! KW:{found_keywords} BTN:{[b.text for b in found_buttons]}")
+            await bot_client.send_message(owner_id, "\n".join(parts),
+                buttons=[[Button.url(btn_label, link)]], link_preview=False)
+            logger.info(f"🔔 Alert! KW:{found_kw} BTN:{[b.text for b in found_btn]}")
         except Exception as e:
-            logger.error(f"Send alert error: {e}")
+            logger.error(f"Alert send: {e}")
             return
 
         # Auto-click
-        clicked = False
-        click_time = ""
-        if settings.get("auto_click", False) and found_buttons:
-            for btn in found_buttons:
+        clicked = False; ctime = ""
+        if settings.get("auto_click", False) and found_btn:
+            for b in found_btn:
                 try:
                     t1 = time.time()
-                    await btn.click()
-                    elapsed = round(time.time() - t1, 2)
-                    click_time = f"{elapsed}s"
+                    await b.click()
+                    el = round(time.time() - t1, 2)
+                    ctime = f"{el}s"
                     clicked = True
-                    await bot_client.send_message(
-                        owner_id,
-                        f"✅ Auto-click: **{btn.text}**  `({click_time})`",
-                        link_preview=False
-                    )
-                    logger.info(f"🖱️ Clicked: {btn.text} in {click_time}")
+                    stats["total_clicks"] = stats.get("total_clicks", 0) + 1
+                    stats["successful_clicks"] = stats.get("successful_clicks", 0) + 1
+                    if stats.get("fastest_click") is None or el < stats["fastest_click"]:
+                        stats["fastest_click"] = el
+                    save_stats(stats)
+                    await bot_client.send_message(owner_id,
+                        f"✅ Auto-click: **{b.text}**  `({ctime})`", link_preview=False)
+                    logger.info(f"🖱️ Clicked: {b.text} in {ctime}")
                 except Exception as e:
-                    await bot_client.send_message(
-                        owner_id,
-                        f"❌ Auto-click αποτυχία: **{btn.text}**",
-                        link_preview=False
-                    )
-                    logger.error(f"Click error: {e}")
+                    stats["total_clicks"] = stats.get("total_clicks", 0) + 1
+                    stats["failed_clicks"] = stats.get("failed_clicks", 0) + 1
+                    save_stats(stats)
+                    await bot_client.send_message(owner_id,
+                        f"❌ Auto-click απέτυχε: **{b.text}**", link_preview=False)
+                    logger.error(f"Click: {e}")
 
         save_alert({
-            "id": int(time.time() * 1000),
-            "channel": real_title,
-            "keyword": ', '.join(found_keywords) if found_keywords else ', '.join(b.text for b in found_buttons),
-            "message": msg_text[:200],
-            "time": time.strftime("%H:%M"),
-            "link": link,
-            "autoClicked": clicked,
-            "clickTime": click_time
+            "id": int(time.time()*1000), "channel": real_title,
+            "keyword": ', '.join(found_kw) if found_kw else ', '.join(b.text for b in found_btn),
+            "message": msg_text[:200], "time": time.strftime("%H:%M"),
+            "link": link, "autoClicked": clicked, "clickTime": ctime
         })
-
     except Exception as e:
-        logger.error(f"Monitor error: {e}")
-
+        logger.error(f"Monitor: {e}")
 
 # ============ BOT UI ============
 user_states = {}
 
-
 def menu_buttons():
     ac = "🟢" if settings.get("auto_click") else "🔴"
     bo = "🟢" if settings.get("buttons_only") else "🔴"
+    ad = "🟢" if settings.get("auto_detect") else "🔴"
     return [
         [Button.inline("📋 Λέξεις", b"keywords"), Button.inline("📡 Κανάλια", b"channels")],
-        [Button.inline("🏷️ Λέξεις κουμπιών", b"clickwords"), Button.inline("📊 Κατάσταση", b"status")],
+        [Button.inline("🏷️ Λέξεις κουμπιών", b"clickwords"), Button.inline("📊 Στατιστικά", b"stats")],
         [Button.inline(f"⚡ Auto-click {ac}", b"toggle_ac"), Button.inline(f"🎯 Μόνο κουμπιά {bo}", b"toggle_bo")],
+        [Button.inline(f"🆕 Auto-detect {ad}", b"toggle_ad")],
         [Button.inline("🧪 Δοκιμή", b"test"), Button.inline("🔄 Ανανέωση", b"refresh")]
     ]
 
-
 def menu_text():
-    ac_status = "ON" if settings.get("auto_click") else "OFF"
-    ch_count = len(settings.get("channels", []))
-    return (
-        f"⚙️ **GGWALL Monitor** `v2.0`\n"
-        f"🟢 Ενεργό  ·  ⚡ Auto-click {ac_status}  ·  {ch_count} κανάλια\n"
-        f"─────────────────────\n"
-        f"Επίλεξε ρύθμιση:"
-    )
-
+    ac = "ON" if settings.get("auto_click") else "OFF"
+    n = len(settings.get("channels", []))
+    return (f"⚙️ **GGWALL Monitor** `v3.0`\n"
+            f"🟢 Ενεργό  ·  ⚡ Auto-click {ac}  ·  {n} κανάλια\n"
+            f"─────────────────────\nΕπίλεξε ρύθμιση:")
 
 @bot_client.on(events.NewMessage(pattern='/start'))
 async def cmd_start(event):
@@ -315,318 +362,211 @@ async def cmd_start(event):
         logger.info(f"Owner: {owner_id}")
         await event.respond(menu_text(), buttons=menu_buttons(), link_preview=False)
     except Exception as e:
-        logger.error(f"Start error: {e}")
-
+        logger.error(f"Start: {e}")
 
 @bot_client.on(events.CallbackQuery())
-async def on_callback(event):
-    global settings
+async def on_cb(event):
+    global settings, stats
     try:
         data = event.data.decode('utf-8')
 
         if data == "keywords":
-            btns = []
-            for kw in settings.get("keywords", []):
-                btns.append([Button.inline(f"🗑️ {kw}", f"rmkw_{kw}".encode())])
-            btns.append([Button.inline("➕ Προσθήκη", b"add_kw")])
-            btns.append([Button.inline("← Πίσω", b"back")])
-            kw_list = settings.get("keywords", [])
-            text = "📋 **Λέξεις-Κλειδιά**\n─────────────────────\n\n" + ("\n".join(f"• {k}" for k in kw_list) if kw_list else "_Κενό — πάτησε ➕_")
-            await event.edit(text, buttons=btns)
+            btns = [[Button.inline(f"🗑️ {k}", f"rmkw_{k}".encode())] for k in settings.get("keywords", [])]
+            btns.append([Button.inline("➕ Προσθήκη", b"add_kw")]); btns.append([Button.inline("← Πίσω", b"back")])
+            kl = settings.get("keywords", [])
+            await event.edit("📋 **Λέξεις-Κλειδιά**\n─────────────────────\n\n" + ("\n".join(f"• {k}" for k in kl) if kl else "_Κενό_"), buttons=btns)
 
         elif data == "channels":
-            btns = []
-            for ch in settings.get("channels", []):
-                btns.append([Button.inline(f"🗑️ {ch}", f"rmch_{ch}".encode())])
-            btns.append([Button.inline("➕ Προσθήκη", b"add_ch")])
-            btns.append([Button.inline("← Πίσω", b"back")])
-            ch_list = settings.get("channels", [])
-            text = "📡 **Κανάλια**\n─────────────────────\n\n" + ("\n".join(f"• {c}" for c in ch_list) if ch_list else "_Κενό — πάτησε ➕_")
-            await event.edit(text, buttons=btns)
+            btns = [[Button.inline(f"🗑️ {c}", f"rmch_{c}".encode())] for c in settings.get("channels", [])]
+            btns.append([Button.inline("➕ Προσθήκη", b"add_ch")]); btns.append([Button.inline("← Πίσω", b"back")])
+            cl = settings.get("channels", [])
+            await event.edit("📡 **Κανάλια**\n─────────────────────\n\n" + ("\n".join(f"• {c}" for c in cl) if cl else "_Κενό_"), buttons=btns)
 
         elif data == "clickwords":
-            btns = []
-            for cw in settings.get("click_words", []):
-                btns.append([Button.inline(f"🗑️ {cw}", f"rmcw_{cw}".encode())])
-            btns.append([Button.inline("➕ Προσθήκη", b"add_cw")])
-            btns.append([Button.inline("← Πίσω", b"back")])
-            cw_list = settings.get("click_words", [])
-            text = "🏷️ **Λέξεις Κουμπιών**\n─────────────────────\n\n" + ("\n".join(f"• {c}" for c in cw_list) if cw_list else "_Κενό — πάτησε ➕_")
-            await event.edit(text, buttons=btns)
+            btns = [[Button.inline(f"🗑️ {c}", f"rmcw_{c}".encode())] for c in settings.get("click_words", [])]
+            btns.append([Button.inline("➕ Προσθήκη", b"add_cw")]); btns.append([Button.inline("← Πίσω", b"back")])
+            cl = settings.get("click_words", [])
+            await event.edit("🏷️ **Λέξεις Κουμπιών**\n─────────────────────\n\n" + ("\n".join(f"• {c}" for c in cl) if cl else "_Κενό_"), buttons=btns)
 
-        elif data == "status":
-            cw = ", ".join(settings.get("click_words", [])) or "—"
-            kw = ", ".join(settings.get("keywords", [])) or "—"
-            ch = "\n".join(f"  • {c}" for c in settings.get("channels", [])) or "  —"
+        elif data == "stats":
+            wr = 0
+            if stats.get("total_clicks", 0) > 0:
+                wr = round(stats.get("successful_clicks", 0) / stats["total_clicks"] * 100)
+            fc = stats.get("fastest_click")
+            fc_txt = f"{fc}s" if fc else "—"
             text = (
-                "📊 **Κατάσταση**\n"
-                "─────────────────────\n\n"
-                f"🟢 **Bot:**  Online\n\n"
-                f"📡 **Κανάλια:**\n{ch}\n\n"
-                f"🔑 **Λέξεις:**  {kw}\n\n"
-                f"🏷️ **Button words:**  {cw}\n\n"
-                f"⚡ **Auto-click:**  {'🟢 ON' if settings.get('auto_click') else '🔴 OFF'}\n"
-                f"🎯 **Μόνο κουμπιά:**  {'🟢 ON' if settings.get('buttons_only') else '🔴 OFF'}"
+                "📊 **Στατιστικά**\n─────────────────────\n\n"
+                f"🔔 **Alerts:**  {stats.get('total_alerts', 0)}\n"
+                f"🖱️ **Clicks:**  {stats.get('total_clicks', 0)}\n"
+                f"✅ **Επιτυχή:**  {stats.get('successful_clicks', 0)}\n"
+                f"❌ **Αποτυχία:**  {stats.get('failed_clicks', 0)}\n"
+                f"📈 **Win rate:**  {wr}%\n"
+                f"⚡ **Ταχύτερο:**  {fc_txt}\n"
+                f"🆕 **Νέα κανάλια:**  {len(stats.get('channels_detected', []))}"
             )
-            await event.edit(text, buttons=[[Button.inline("← Πίσω", b"back")]])
+            await event.edit(text, buttons=[[Button.inline("🔄 Reset", b"reset_stats")], [Button.inline("← Πίσω", b"back")]])
+
+        elif data == "reset_stats":
+            stats = DEFAULT_STATS.copy()
+            save_stats(stats)
+            await event.answer("✅ Reset!")
+            await event.edit(menu_text(), buttons=menu_buttons())
 
         elif data == "toggle_ac":
             settings["auto_click"] = not settings.get("auto_click", False)
-            save_settings(settings)
-            await event.edit(menu_text(), buttons=menu_buttons())
-
+            save_settings(settings); await event.edit(menu_text(), buttons=menu_buttons())
         elif data == "toggle_bo":
             settings["buttons_only"] = not settings.get("buttons_only", True)
-            save_settings(settings)
-            await event.edit(menu_text(), buttons=menu_buttons())
+            save_settings(settings); await event.edit(menu_text(), buttons=menu_buttons())
+        elif data == "toggle_ad":
+            settings["auto_detect"] = not settings.get("auto_detect", True)
+            save_settings(settings); await event.edit(menu_text(), buttons=menu_buttons())
 
         elif data == "test":
-            await send_test_alert()
-            await event.answer("🧪 Test στάλθηκε!")
-
+            await send_test(); await event.answer("🧪 Test!")
         elif data == "test_claim":
             await event.answer("✅ Claimed! (Test)")
-            logger.info("🧪 Test claim clicked")
-
         elif data == "refresh":
             await event.edit("🔄 Ανανέωση...")
             await fetch_my_channels()
             await event.edit(menu_text(), buttons=menu_buttons())
 
         elif data == "add_kw":
-            user_states[event.sender_id] = "ADD_KW"
-            await event.edit("📝 Γράψε τη λέξη:")
-
+            user_states[event.sender_id] = "ADD_KW"; await event.edit("📝 Γράψε τη λέξη:")
         elif data == "add_ch":
             btns = []
             for ch in my_channels:
-                name = ch["username"] or ch["title"]
-                if name not in settings.get("channels", []):
-                    btns.append([Button.inline(f"📡 {ch['title'][:25]}", f"pick_{name}".encode())])
-            btns.append([Button.inline("📝 Χειροκίνητα", b"add_ch_manual")])
-            btns.append([Button.inline("← Πίσω", b"channels")])
+                nm = ch["username"] or ch["title"]
+                if nm not in settings.get("channels", []):
+                    btns.append([Button.inline(f"📡 {ch['title'][:25]}", f"pick_{nm}".encode())])
+            btns.append([Button.inline("📝 Χειροκίνητα", b"add_ch_m")]); btns.append([Button.inline("← Πίσω", b"channels")])
             await event.edit("📡 **Διάλεξε κανάλι:**", buttons=btns)
-
-        elif data == "add_ch_manual":
-            user_states[event.sender_id] = "ADD_CH"
-            await event.edit("📝 Γράψε το κανάλι:")
-
+        elif data == "add_ch_m":
+            user_states[event.sender_id] = "ADD_CH"; await event.edit("📝 Γράψε το κανάλι:")
         elif data == "add_cw":
-            user_states[event.sender_id] = "ADD_CW"
-            await event.edit("📝 Γράψε τη λέξη κουμπιού:")
+            user_states[event.sender_id] = "ADD_CW"; await event.edit("📝 Γράψε τη λέξη κουμπιού:")
 
         elif data.startswith("pick_"):
-            name = data[5:]
-            if name not in settings.get("channels", []):
-                settings.setdefault("channels", []).append(name)
-                save_settings(settings)
+            nm = data[5:]
+            if nm not in settings.get("channels", []):
+                settings.setdefault("channels", []).append(nm); save_settings(settings)
             btns = [[Button.inline(f"🗑️ {c}", f"rmch_{c}".encode())] for c in settings["channels"]]
-            btns.append([Button.inline("➕ Προσθήκη", b"add_ch")])
-            btns.append([Button.inline("← Πίσω", b"back")])
-            text = "📡 **Κανάλια**\n─────────────────────\n\n" + "\n".join(f"• {c}" for c in settings["channels"])
-            await event.edit(text, buttons=btns)
+            btns.append([Button.inline("➕ Προσθήκη", b"add_ch")]); btns.append([Button.inline("← Πίσω", b"back")])
+            await event.edit("📡 **Κανάλια**\n─────────────────────\n\n" + "\n".join(f"• {c}" for c in settings["channels"]), buttons=btns)
 
         elif data.startswith("rmkw_"):
-            kw = data[5:]
-            if kw in settings.get("keywords", []): settings["keywords"].remove(kw)
-            save_settings(settings)
-            btns = [[Button.inline(f"🗑️ {k}", f"rmkw_{k}".encode())] for k in settings.get("keywords", [])]
-            btns.append([Button.inline("➕ Προσθήκη", b"add_kw")])
-            btns.append([Button.inline("← Πίσω", b"back")])
-            kw_list = settings.get("keywords", [])
-            text = "📋 **Λέξεις-Κλειδιά**\n─────────────────────\n\n" + ("\n".join(f"• {k}" for k in kw_list) if kw_list else "_Κενό_")
-            await event.edit(text, buttons=btns)
-
+            k = data[5:]
+            if k in settings.get("keywords", []): settings["keywords"].remove(k); save_settings(settings)
+            btns = [[Button.inline(f"🗑️ {x}", f"rmkw_{x}".encode())] for x in settings.get("keywords", [])]
+            btns.append([Button.inline("➕ Προσθήκη", b"add_kw")]); btns.append([Button.inline("← Πίσω", b"back")])
+            kl = settings.get("keywords", [])
+            await event.edit("📋 **Λέξεις-Κλειδιά**\n─────────────────────\n\n" + ("\n".join(f"• {x}" for x in kl) if kl else "_Κενό_"), buttons=btns)
         elif data.startswith("rmch_"):
-            ch = data[5:]
-            if ch in settings.get("channels", []): settings["channels"].remove(ch)
-            save_settings(settings)
-            btns = [[Button.inline(f"🗑️ {c}", f"rmch_{c}".encode())] for c in settings.get("channels", [])]
-            btns.append([Button.inline("➕ Προσθήκη", b"add_ch")])
-            btns.append([Button.inline("← Πίσω", b"back")])
-            ch_list = settings.get("channels", [])
-            text = "📡 **Κανάλια**\n─────────────────────\n\n" + ("\n".join(f"• {c}" for c in ch_list) if ch_list else "_Κενό_")
-            await event.edit(text, buttons=btns)
-
+            c = data[5:]
+            if c in settings.get("channels", []): settings["channels"].remove(c); save_settings(settings)
+            btns = [[Button.inline(f"🗑️ {x}", f"rmch_{x}".encode())] for x in settings.get("channels", [])]
+            btns.append([Button.inline("➕ Προσθήκη", b"add_ch")]); btns.append([Button.inline("← Πίσω", b"back")])
+            cl = settings.get("channels", [])
+            await event.edit("📡 **Κανάλια**\n─────────────────────\n\n" + ("\n".join(f"• {x}" for x in cl) if cl else "_Κενό_"), buttons=btns)
         elif data.startswith("rmcw_"):
-            cw = data[5:]
-            if cw in settings.get("click_words", []): settings["click_words"].remove(cw)
-            save_settings(settings)
-            btns = [[Button.inline(f"🗑️ {c}", f"rmcw_{c}".encode())] for c in settings.get("click_words", [])]
-            btns.append([Button.inline("➕ Προσθήκη", b"add_cw")])
-            btns.append([Button.inline("← Πίσω", b"back")])
-            cw_list = settings.get("click_words", [])
-            text = "🏷️ **Λέξεις Κουμπιών**\n─────────────────────\n\n" + ("\n".join(f"• {c}" for c in cw_list) if cw_list else "_Κενό_")
-            await event.edit(text, buttons=btns)
+            c = data[5:]
+            if c in settings.get("click_words", []): settings["click_words"].remove(c); save_settings(settings)
+            btns = [[Button.inline(f"🗑️ {x}", f"rmcw_{x}".encode())] for x in settings.get("click_words", [])]
+            btns.append([Button.inline("➕ Προσθήκη", b"add_cw")]); btns.append([Button.inline("← Πίσω", b"back")])
+            cl = settings.get("click_words", [])
+            await event.edit("🏷️ **Λέξεις Κουμπιών**\n─────────────────────\n\n" + ("\n".join(f"• {x}" for x in cl) if cl else "_Κενό_"), buttons=btns)
 
         elif data == "back":
             await event.edit(menu_text(), buttons=menu_buttons())
 
         await event.answer()
-
     except Exception as e:
-        logger.error(f"Callback error: {e}")
-        try:
-            await event.answer("⚠️ Σφάλμα")
-        except Exception:
-            pass
-
+        logger.error(f"CB: {e}")
+        try: await event.answer("⚠️")
+        except: pass
 
 @bot_client.on(events.NewMessage())
 async def on_text(event):
     global settings
     try:
         sid = event.sender_id
-        if sid not in user_states:
-            return
-        if not event.message.text or event.message.text.startswith("/"):
-            return
-        state = user_states.pop(sid)
-        text = event.message.text.strip()
-
-        if state == "ADD_KW":
-            if text and text not in settings.get("keywords", []):
-                settings.setdefault("keywords", []).append(text)
-                save_settings(settings)
-                await event.reply(f"✅ Λέξη: **{text}**")
-            else:
-                await event.reply("⚠️ Υπάρχει ή κενό")
-
-        elif state == "ADD_CH":
-            ch = text.replace("@", "").strip()
-            if ch and ch not in settings.get("channels", []):
-                settings.setdefault("channels", []).append(ch)
-                save_settings(settings)
-                await event.reply(f"✅ Κανάλι: **{ch}**")
-            else:
-                await event.reply("⚠️ Υπάρχει ή κενό")
-
-        elif state == "ADD_CW":
-            cw = text.lower().strip()
-            if cw and cw not in settings.get("click_words", []):
-                settings.setdefault("click_words", []).append(cw)
-                save_settings(settings)
-                await event.reply(f"✅ Button word: **{cw}**")
-            else:
-                await event.reply("⚠️ Υπάρχει ή κενό")
-
+        if sid not in user_states: return
+        if not event.message.text or event.message.text.startswith("/"): return
+        st = user_states.pop(sid); t = event.message.text.strip()
+        if st == "ADD_KW":
+            if t and t not in settings.get("keywords", []):
+                settings.setdefault("keywords", []).append(t); save_settings(settings)
+                await event.reply(f"✅ Λέξη: **{t}**")
+            else: await event.reply("⚠️ Υπάρχει")
+        elif st == "ADD_CH":
+            c = t.replace("@","").strip()
+            if c and c not in settings.get("channels", []):
+                settings.setdefault("channels", []).append(c); save_settings(settings)
+                await event.reply(f"✅ Κανάλι: **{c}**")
+            else: await event.reply("⚠️ Υπάρχει")
+        elif st == "ADD_CW":
+            c = t.lower().strip()
+            if c and c not in settings.get("click_words", []):
+                settings.setdefault("click_words", []).append(c); save_settings(settings)
+                await event.reply(f"✅ Button word: **{c}**")
+            else: await event.reply("⚠️ Υπάρχει")
     except Exception as e:
-        logger.error(f"Text handler error: {e}")
-
+        logger.error(f"Text: {e}")
 
 # ============ TEST ============
-async def send_test_alert():
-    if not owner_id:
-        return
+async def send_test():
+    if not owner_id: return
     try:
-        alert = (
-            "🔔 **Νέο match**\n\n"
-            "📡 Κανάλι  **Test Channel**\n"
-            "🖱️ Button  **Claim 0/5**\n\n"
-            "> 💬 Test alert — αν βλέπεις αυτό, ΟΛΑ δουλεύουν!"
-        )
-        await bot_client.send_message(
-            owner_id, alert,
-            buttons=[[Button.url("👁️ Δες το μήνυμα", "https://t.me/test")]],
-            link_preview=False
-        )
-        save_alert({
-            "id": int(time.time() * 1000),
-            "channel": "Test Channel",
-            "keyword": "Claim 0/5",
-            "message": "Test alert",
-            "time": time.strftime("%H:%M"),
-            "link": "https://t.me/test",
-            "autoClicked": False,
-            "clickTime": ""
-        })
-        logger.info("🧪 Test alert sent")
+        await bot_client.send_message(owner_id,
+            "🔔 **Νέο match**\n\n📡 Κανάλι  **Test Channel**\n🖱️ Button  **Claim 0/5**\n\n> 💬 Test — ΟΛΑ δουλεύουν!",
+            buttons=[[Button.url("👁️ Δες το μήνυμα", "https://t.me/test")]], link_preview=False)
+        logger.info("🧪 Test sent")
     except Exception as e:
-        logger.error(f"Test alert error: {e}")
+        logger.error(f"Test: {e}")
 
-
-# ============ API SERVER ============
-def cors():
-    return {"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type"}
-
-async def api_get_settings(r): return web.json_response(settings, headers=cors())
-async def api_post_settings(r):
-    global settings
+# ============ API ============
+def cors(): return {"Access-Control-Allow-Origin": "*"}
+async def a_settings(r): return web.json_response(settings, headers=cors())
+async def a_stats(r): return web.json_response(stats, headers=cors())
+async def a_alerts(r): return web.json_response(load_alerts(), headers=cors())
+async def a_test(r):
+    await send_test(); return web.json_response({"ok": True}, headers=cors())
+async def a_test_btn(r):
     try:
-        data = await r.json()
-        settings.update(data)
-        save_settings(settings)
+        tc = None
+        for ch in my_channels:
+            if 'test' in ch['title'].lower() or 'ggwallmsg' in (ch.get('username','') or '').lower():
+                tc = ch; break
+        if not tc: return web.json_response({"ok": False}, headers=cors())
+        await bot_client.send_message(tc['id'], "🧪 **Test**\n\nPress button!", buttons=[Button.inline("Claim 0/5", b"test_claim")])
         return web.json_response({"ok": True}, headers=cors())
     except Exception as e:
-        return web.json_response({"ok": False, "error": str(e)}, status=400, headers=cors())
-async def api_channels(r): return web.json_response(my_channels, headers=cors())
-async def api_alerts(r): return web.json_response(load_alerts(), headers=cors())
-async def api_test(r):
-    await send_test_alert()
-    return web.json_response({"ok": True}, headers=cors())
-async def api_test_button(r):
-    try:
-        test_ch = None
-        for ch in my_channels:
-            if 'test' in ch['title'].lower() or 'ggwallmsg' in (ch.get('username', '') or '').lower():
-                test_ch = ch
-                break
-        if not test_ch:
-            return web.json_response({"ok": False, "error": "No test channel"}, headers=cors())
-        await bot_client.send_message(test_ch['id'], "🧪 **Test Button Message**\n\nThis is a test! Press the button below!", buttons=[Button.inline("Claim 0/5", b"test_claim")])
-        return web.json_response({"ok": True, "channel": test_ch['title']}, headers=cors())
-    except Exception as e:
         return web.json_response({"ok": False, "error": str(e)}, headers=cors())
-async def api_refresh(r):
-    await fetch_my_channels()
-    return web.json_response(my_channels, headers=cors())
-async def api_options(r): return web.Response(headers=cors())
-async def api_health(r):
-    return web.json_response({"status": "running", "owner": owner_id, "channels": len(settings.get("channels", []))}, headers=cors())
+async def a_health(r): return web.json_response({"status": "running", "owner": owner_id}, headers=cors())
 
 async def start_api():
     app = web.Application()
-    app.router.add_get('/', api_health)
-    app.router.add_get('/api/settings', api_get_settings)
-    app.router.add_post('/api/settings', api_post_settings)
-    app.router.add_options('/api/settings', api_options)
-    app.router.add_get('/api/channels', api_channels)
-    app.router.add_get('/api/alerts', api_alerts)
-    app.router.add_get('/api/test', api_test)
-    app.router.add_get('/api/test_button', api_test_button)
-    app.router.add_get('/api/refresh', api_refresh)
-    runner = web.AppRunner(app)
-    await runner.setup()
+    app.router.add_get('/', a_health)
+    app.router.add_get('/api/settings', a_settings)
+    app.router.add_get('/api/stats', a_stats)
+    app.router.add_get('/api/alerts', a_alerts)
+    app.router.add_get('/api/test', a_test)
+    app.router.add_get('/api/test_button', a_test_btn)
+    runner = web.AppRunner(app); await runner.setup()
     await web.TCPSite(runner, '0.0.0.0', 8080).start()
-    logger.info("🌐 API: http://0.0.0.0:8080")
-
+    logger.info("🌐 API: 8080")
 
 # ============ MAIN ============
 async def main():
-    logger.info("🚀 Starting GGWALL Monitor v2.1...")
-    logger.info("📱 Connecting user...")
-    await user_client.start()
-    logger.info("✅ User connected!")
+    logger.info("🚀 GGWALL Monitor v3.0...")
+    await user_client.start(); logger.info("✅ User!")
     await fetch_my_channels()
-    logger.info("🤖 Connecting bot...")
-    await bot_client.start(bot_token=BOT_TOKEN)
-    logger.info("✅ Bot connected!")
+    await bot_client.start(bot_token=BOT_TOKEN); logger.info("✅ Bot!")
     await start_api()
-    logger.info("✅ Ready! Send /start to your bot")
-    logger.info(f"📡 Monitoring {len(settings.get('channels', []))} channels")
-    logger.info(f"🔑 Keywords: {settings.get('keywords', [])}")
-    logger.info(f"🏷️ Click words: {settings.get('click_words', [])}")
-    logger.info(f"⚡ Auto-click: {settings.get('auto_click', False)}")
-    logger.info(f"🎯 Buttons only: {settings.get('buttons_only', True)}")
-    await asyncio.gather(
-        user_client.run_until_disconnected(),
-        bot_client.run_until_disconnected()
-    )
+    logger.info(f"✅ Ready! {len(settings.get('channels',[]))} channels, auto-detect:{settings.get('auto_detect')}")
+    await asyncio.gather(user_client.run_until_disconnected(), bot_client.run_until_disconnected())
 
 if __name__ == '__main__':
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("🛑 Stopped")
-    except Exception as e:
-        logger.error(f"Fatal: {e}")
+    try: asyncio.run(main())
+    except KeyboardInterrupt: logger.info("🛑")
+    except Exception as e: logger.error(f"Fatal: {e}")
