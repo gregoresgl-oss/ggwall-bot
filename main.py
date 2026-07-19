@@ -134,6 +134,7 @@ async def fetch_my_channels():
 
 # ============ MONITORING ============
 @user_client.on(events.NewMessage())
+@user_client.on(events.MessageEdited())
 async def on_new_message(event):
     global settings
     try:
@@ -150,7 +151,10 @@ async def on_new_message(event):
             return
 
         msg_key = f"{event.chat_id}_{event.message.id}"
-        if msg_key in seen_messages:
+        # Για edited messages: αν το προηγούμενο δεν είχε button αλλά τώρα έχει, ξαναδές το
+        has_button_now = bool(event.message.buttons)
+        dedup_key = f"{msg_key}_btn" if has_button_now else msg_key
+        if dedup_key in seen_messages:
             return
 
         try:
@@ -199,7 +203,7 @@ async def on_new_message(event):
             if not found_keywords and not found_buttons:
                 return
 
-        seen_messages.add(msg_key)
+        seen_messages.add(dedup_key)
         if len(seen_messages) > 500:
             seen_messages.clear()
 
