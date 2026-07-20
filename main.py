@@ -60,7 +60,8 @@ DEFAULT_STATS = {
     "successful_clicks": 0,
     "failed_clicks": 0,
     "fastest_click": None,
-    "channels_detected": []
+    "channels_detected": [],
+    "tokens": {}
 }
 
 # ============ CLIENTS ============
@@ -164,6 +165,38 @@ async def fetch_my_channels():
 
 # ============ AUTO-DETECT LINKS ============
 CHANNEL_LINK_RE = re.compile(r't\.me/(?:joinchat/)?([a-zA-Z0-9_+]+)')
+
+# ============ TOKEN PARSER ============
+# Πιάνει "0.38 $ATOM each" ή "0.5 $ATOM" - το ποσό ΑΝΑ άτομο
+TOKEN_EACH_RE = re.compile(r'([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})\s*each', re.IGNORECASE)
+TOKEN_ANY_RE = re.compile(r'([\d,]+\.?\d*)\s*\$([A-Z][A-Z0-9]{1,15})')
+
+def extract_token(msg_text):
+    """Βρίσκει πόσα tokens παίρνει ο κάθε νικητής (το 'each' amount)"""
+    if not msg_text:
+        return None, None
+    # Προτίμησε το "X TOKEN each" (το ποσό ανά άτομο)
+    m = TOKEN_EACH_RE.search(msg_text)
+    if not m:
+        # Αλλιώς πάρε το πρώτο $TOKEN που δεν είναι το σύνολο
+        matches = TOKEN_ANY_RE.findall(msg_text)
+        if len(matches) >= 2:
+            # Το δεύτερο συνήθως είναι το "each"
+            m2 = matches[1]
+            try:
+                return float(m2[0].replace(',', '')), m2[1].upper()
+            except:
+                return None, None
+        elif len(matches) == 1:
+            try:
+                return float(matches[0][0].replace(',', '')), matches[0][1].upper()
+            except:
+                return None, None
+        return None, None
+    try:
+        return float(m.group(1).replace(',', '')), m.group(2).upper()
+    except:
+        return None, None
 
 async def check_new_channels(msg_text):
     """Ψάχνει links για νέα κανάλια στο μήνυμα"""
@@ -310,6 +343,11 @@ async def on_msg(event):
                     stats["successful_clicks"] = stats.get("successful_clicks", 0) + 1
                     if stats.get("fastest_click") is None or el < stats["fastest_click"]:
                         stats["fastest_click"] = el
+                    # Track tokens claimed
+                    tok_amt, tok_sym = extract_token(msg_text)
+                    if tok_amt and tok_sym:
+                        stats.setdefault("tokens", {})
+                        stats["tokens"][tok_sym] = round(stats["tokens"].get(tok_sym, 0) + tok_amt, 4)
                     save_stats(stats)
                     await bot_client.send_message(owner_id,
                         f"✅ Auto-click: **{b.text}**  `({ctime})`", link_preview=False)
@@ -338,13 +376,18 @@ def menu_buttons():
     ac = "🟢" if settings.get("auto_click") else "🔴"
     bo = "🟢" if settings.get("buttons_only") else "🔴"
     ad = "🟢" if settings.get("auto_detect") else "🔴"
-    return [
+    rows = [
         [Button.inline("📋 Λέξεις", b"keywords"), Button.inline("📡 Κανάλια", b"channels")],
         [Button.inline("🏷️ Λέξεις κουμπιών", b"clickwords"), Button.inline("📊 Στατιστικά", b"stats")],
         [Button.inline(f"⚡ Auto-click {ac}", b"toggle_ac"), Button.inline(f"🎯 Μόνο κουμπιά {bo}", b"toggle_bo")],
         [Button.inline(f"🆕 Auto-detect {ad}", b"toggle_ad")],
-        [Button.inline("🧪 Δοκιμή", b"test"), Button.inline("🔄 Ανανέωση", b"refresh")]
     ]
+    dash = os.getenv('RAILWAY_PUBLIC_DOMAIN', '')
+    if dash:
+        rows.append([Button.url("📈 Dashboard", f"https://{dash}"), Button.inline("🔄 Ανανέωση", b"refresh")])
+    else:
+        rows.append([Button.inline("🔄 Ανανέωση", b"refresh")])
+    return rows
 
 def menu_text():
     up = int(time.time() - START_TIME)
@@ -399,6 +442,14 @@ async def on_cb(event):
                 wr = round(stats.get("successful_clicks", 0) / stats["total_clicks"] * 100)
             fc = stats.get("fastest_click")
             fc_txt = f"{fc}s" if fc else "—"
+            # Tokens summary
+            toks = stats.get("tokens", {})
+            tok_lines = ""
+            if toks:
+                sorted_toks = sorted(toks.items(), key=lambda x: -x[1])
+                tok_lines = "\n\n💰 **Tokens:**\n" + "\n".join(
+                    f"  • {v:g} ${k}" for k, v in sorted_toks[:8]
+                )
             text = (
                 "📊 **Στατιστικά**\n─────────────────────\n\n"
                 f"🔔 **Alerts:**  {stats.get('total_alerts', 0)}\n"
@@ -406,8 +457,8 @@ async def on_cb(event):
                 f"✅ **Επιτυχή:**  {stats.get('successful_clicks', 0)}\n"
                 f"❌ **Αποτυχία:**  {stats.get('failed_clicks', 0)}\n"
                 f"📈 **Win rate:**  {wr}%\n"
-                f"⚡ **Ταχύτερο:**  {fc_txt}\n"
-                f"🆕 **Νέα κανάλια:**  {len(stats.get('channels_detected', []))}"
+                f"⚡ **Ταχύτερο:**  {fc_txt}"
+                f"{tok_lines}"
             )
             dash_url = os.getenv('RAILWAY_PUBLIC_DOMAIN', '')
             buttons = []
@@ -433,8 +484,6 @@ async def on_cb(event):
             settings["auto_detect"] = not settings.get("auto_detect", True)
             save_settings(settings); await event.edit(menu_text(), buttons=menu_buttons())
 
-        elif data == "test":
-            await send_test(); await event.answer("🧪 Test!")
         elif data == "test_claim":
             await event.answer("✅ Claimed! (Test)")
         elif data == "refresh":

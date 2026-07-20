@@ -3,387 +3,254 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GGWALL · Mission Control</title>
+<title>GGWALL Monitor</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
-  --bg: #0a0e14;
-  --panel: #111721;
-  --panel-2: #161d29;
-  --line: rgba(120,180,255,0.08);
-  --line-bright: rgba(120,180,255,0.18);
-  --text: #e6edf5;
-  --dim: #6b7a8f;
-  --accent: #00ff9d;
-  --accent-dim: rgba(0,255,157,0.12);
-  --warn: #ffb020;
-  --danger: #ff4d6d;
-  --blue: #4d9fff;
-  --purple: #b478ff;
+  --bg: #0c0f14;
+  --surface: #14181f;
+  --line: rgba(255,255,255,0.06);
+  --text: #e8ecf2;
+  --dim: #7a828f;
+  --dimmer: #4a515c;
+  --accent: #4ade80;
+  --accent-soft: rgba(74,222,128,0.1);
+  --blue: #60a5fa;
+  --amber: #fbbf24;
+  --red: #f87171;
 }
-
 * { margin:0; padding:0; box-sizing:border-box; }
-html,body { background:var(--bg); color:var(--text); font-family:'Space Grotesk',sans-serif; }
-body { min-height:100vh; overflow-x:hidden; }
+html,body { background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased; }
+body { min-height:100vh; }
 
-/* Scanline overlay */
-body::before {
-  content:''; position:fixed; inset:0; pointer-events:none; z-index:100;
-  background:repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.15) 3px, transparent 3px);
-  opacity:0.4;
-}
+@keyframes fadeUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+@keyframes softPulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
 
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-@keyframes blink { 0%,49%{opacity:1} 50%,100%{opacity:0} }
-@keyframes scan { 0%{transform:translateY(-100%)} 100%{transform:translateY(100%)} }
-@keyframes countUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
-@keyframes slideIn { from{opacity:0;transform:translateX(-12px)} to{opacity:1;transform:translateX(0)} }
-@keyframes gridPulse { 0%,100%{opacity:0.5} 50%{opacity:1} }
+.wrap { max-width:920px; margin:0 auto; padding:32px 20px 48px; }
 
 /* Header */
-.hud-top {
-  display:flex; align-items:center; justify-content:space-between;
-  padding:16px 24px; border-bottom:1px solid var(--line-bright);
-  background:linear-gradient(180deg, rgba(0,255,157,0.03), transparent);
-  position:relative;
-}
-.hud-top::after {
-  content:''; position:absolute; bottom:-1px; left:0; height:1px; width:100%;
-  background:linear-gradient(90deg, transparent, var(--accent), transparent);
-  opacity:0.6;
-}
-.brand { display:flex; align-items:center; gap:14px; }
-.logo {
-  width:42px; height:42px; border:1px solid var(--accent);
-  display:flex; align-items:center; justify-content:center;
-  font-family:'JetBrains Mono'; font-weight:700; font-size:18px; color:var(--accent);
-  position:relative; overflow:hidden;
-}
-.logo::before {
-  content:''; position:absolute; inset:0;
-  background:linear-gradient(180deg, transparent, var(--accent-dim), transparent);
-  animation:scan 3s linear infinite;
-}
-.brand-txt .name { font-weight:700; font-size:17px; letter-spacing:0.5px; }
-.brand-txt .sub { font-family:'JetBrains Mono'; font-size:10px; color:var(--dim); letter-spacing:2px; text-transform:uppercase; }
+.top { display:flex; align-items:center; justify-content:space-between; margin-bottom:36px; animation:fadeUp .4s ease; }
+.brand { display:flex; align-items:center; gap:12px; }
+.brand .mark { width:32px; height:32px; border-radius:8px; background:var(--accent-soft); border:1px solid rgba(74,222,128,0.25); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; color:var(--accent); }
+.brand .txt h1 { font-size:15px; font-weight:600; letter-spacing:-0.2px; }
+.brand .txt p { font-size:12px; color:var(--dim); margin-top:1px; }
+.status { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--dim); font-family:'JetBrains Mono'; }
+.status .dot { width:7px; height:7px; border-radius:50%; background:var(--accent); animation:softPulse 2s infinite; }
 
-.status-cluster { display:flex; align-items:center; gap:24px; font-family:'JetBrains Mono'; font-size:12px; }
-.stat-item { display:flex; align-items:center; gap:8px; color:var(--dim); }
-.stat-item b { color:var(--text); font-weight:500; }
-.live-dot { width:8px; height:8px; border-radius:50%; background:var(--accent); animation:pulse 1.5s infinite; box-shadow:0 0 10px var(--accent); }
+/* Stat grid */
+.stats { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:12px; }
+.stat { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:18px; animation:fadeUp .4s ease backwards; }
+.stat .label { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:10px; }
+.stat .val { font-family:'JetBrains Mono'; font-size:30px; font-weight:600; letter-spacing:-1px; }
+.stat .val.green { color:var(--accent); }
+.stat .val.blue { color:var(--blue); }
+.stat .val.amber { color:var(--amber); }
+.stat .sub { font-size:11px; color:var(--dimmer); margin-top:6px; font-family:'JetBrains Mono'; }
 
-/* Layout */
-.grid {
-  display:grid; grid-template-columns:repeat(12,1fr); gap:1px;
-  background:var(--line); padding:1px;
-}
-.cell { background:var(--bg); padding:24px; }
+/* Two-col */
+.row2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
 
-.eyebrow {
-  font-family:'JetBrains Mono'; font-size:10px; letter-spacing:2.5px;
-  text-transform:uppercase; color:var(--dim); margin-bottom:16px;
-  display:flex; align-items:center; gap:8px;
-}
-.eyebrow::before { content:''; width:16px; height:1px; background:var(--accent); }
+/* Card */
+.card { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:20px; animation:fadeUp .4s ease backwards; }
+.card h2 { font-size:12px; color:var(--dim); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:16px; font-weight:600; }
 
-/* Big metric */
-.metric-hero { grid-column:span 6; position:relative; }
-.metric-hero .huge {
-  font-family:'JetBrains Mono'; font-weight:700; font-size:88px; line-height:0.9;
-  color:var(--accent); letter-spacing:-2px; animation:countUp 0.6s ease;
-  text-shadow:0 0 40px rgba(0,255,157,0.3);
-}
-.metric-hero .cap { font-size:15px; color:var(--dim); margin-top:8px; }
-.metric-hero .spark { display:flex; gap:3px; align-items:flex-end; height:40px; margin-top:20px; }
-.metric-hero .spark span {
-  flex:1; background:var(--accent-dim); border-top:2px solid var(--accent);
-  min-height:4px; transition:height 0.4s ease;
-}
-
-.metric-tri { grid-column:span 6; display:grid; grid-template-rows:repeat(3,1fr); gap:1px; background:var(--line); }
-.mini { background:var(--bg); padding:20px 24px; display:flex; align-items:center; justify-content:space-between; }
-.mini .l { font-size:13px; color:var(--dim); }
-.mini .v { font-family:'JetBrains Mono'; font-weight:700; font-size:32px; }
-.mini .v.green { color:var(--accent); }
-.mini .v.blue { color:var(--blue); }
-.mini .v.warn { color:var(--warn); }
-
-/* Win rate gauge */
-.gauge-cell { grid-column:span 4; }
-.gauge-wrap { display:flex; align-items:center; gap:24px; }
-.gauge { position:relative; width:120px; height:120px; flex-shrink:0; }
-.gauge svg { transform:rotate(-90deg); }
-.gauge .track { fill:none; stroke:var(--panel-2); stroke-width:10; }
-.gauge .fill { fill:none; stroke:var(--accent); stroke-width:10; stroke-linecap:round; transition:stroke-dashoffset 1s ease; filter:drop-shadow(0 0 6px var(--accent)); }
-.gauge .pct { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-family:'JetBrains Mono'; font-weight:700; font-size:28px; }
-.gauge-info .big { font-family:'JetBrains Mono'; font-size:15px; margin-bottom:6px; }
-.gauge-info .row { font-size:12px; color:var(--dim); font-family:'JetBrains Mono'; margin-bottom:3px; }
-.gauge-info .row b { color:var(--text); }
+/* Win rate */
+.rate { display:flex; align-items:center; gap:20px; }
+.ring { position:relative; width:88px; height:88px; flex-shrink:0; }
+.ring svg { transform:rotate(-90deg); }
+.ring .bg { fill:none; stroke:rgba(255,255,255,0.05); stroke-width:7; }
+.ring .fg { fill:none; stroke:var(--accent); stroke-width:7; stroke-linecap:round; transition:stroke-dashoffset 1s cubic-bezier(.4,0,.2,1); }
+.ring .num { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-family:'JetBrains Mono'; font-weight:600; font-size:22px; }
+.rate-meta { font-size:13px; color:var(--dim); line-height:1.7; font-family:'JetBrains Mono'; }
+.rate-meta b { color:var(--text); }
 
 /* Speed */
-.speed-cell { grid-column:span 4; }
-.speed-val { font-family:'JetBrains Mono'; font-weight:700; font-size:56px; color:var(--blue); text-shadow:0 0 30px rgba(77,159,255,0.3); }
-.speed-unit { font-size:20px; color:var(--dim); }
-.speed-bar { height:6px; background:var(--panel-2); margin-top:20px; position:relative; overflow:hidden; }
-.speed-bar .f { height:100%; background:linear-gradient(90deg, var(--accent), var(--blue)); width:0; transition:width 1s ease; }
-.speed-note { font-size:11px; color:var(--dim); margin-top:10px; font-family:'JetBrains Mono'; }
+.speed .big { font-family:'JetBrains Mono'; font-size:38px; font-weight:600; color:var(--blue); }
+.speed .big span { font-size:16px; color:var(--dim); }
+.speed .track { height:4px; background:rgba(255,255,255,0.05); border-radius:2px; margin-top:16px; overflow:hidden; }
+.speed .track .fill { height:100%; background:linear-gradient(90deg,var(--accent),var(--blue)); border-radius:2px; width:0; transition:width 1s ease; }
+.speed .note { font-size:11px; color:var(--dimmer); margin-top:10px; }
+
+/* Tokens */
+.tokens { display:flex; flex-direction:column; gap:2px; }
+.token-row { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--line); font-family:'JetBrains Mono'; }
+.token-row:last-child { border:none; }
+.token-row .name { font-size:13px; color:var(--text); }
+.token-row .amt { font-size:15px; font-weight:600; color:var(--accent); }
+.token-empty { font-size:12px; color:var(--dimmer); font-family:'JetBrains Mono'; padding:8px 0; }
 
 /* Channels */
-.chan-cell { grid-column:span 4; }
-.chan-list { display:flex; flex-direction:column; gap:10px; }
-.chan-row { display:flex; align-items:center; gap:12px; font-family:'JetBrains Mono'; font-size:12px; animation:slideIn 0.4s ease backwards; }
-.chan-row .dot { width:6px; height:6px; border-radius:50%; background:var(--accent); box-shadow:0 0 6px var(--accent); flex-shrink:0; }
-.chan-row .nm { flex:1; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.chan-row .ct { color:var(--dim); }
+.chans { display:flex; flex-wrap:wrap; gap:8px; }
+.chip { display:inline-flex; align-items:center; gap:7px; background:rgba(255,255,255,0.03); border:1px solid var(--line); border-radius:8px; padding:7px 12px; font-size:12px; font-family:'JetBrains Mono'; color:var(--text); }
+.chip .d { width:5px; height:5px; border-radius:50%; background:var(--accent); }
 
 /* Feed */
-.feed-cell { grid-column:span 12; }
-.feed-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
-.feed-live { font-family:'JetBrains Mono'; font-size:11px; color:var(--accent); display:flex; align-items:center; gap:8px; }
-.feed-live .c { animation:blink 1s infinite; }
+.feed-card { margin-top:12px; }
 .feed { display:flex; flex-direction:column; }
-.feed-row {
-  display:grid; grid-template-columns:80px 1fr 140px 90px; gap:16px; align-items:center;
-  padding:14px 0; border-bottom:1px solid var(--line);
-  font-family:'JetBrains Mono'; font-size:13px; animation:slideIn 0.4s ease backwards;
-}
-.feed-row:hover { background:var(--panel); }
-.feed-row .time { color:var(--dim); font-size:12px; }
-.feed-row .chan { color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.feed-row .btn-tag { color:var(--blue); }
-.feed-row .result { text-align:right; }
-.feed-row .result.ok { color:var(--accent); }
-.feed-row .result.fail { color:var(--danger); }
-.feed-empty { text-align:center; padding:60px 20px; color:var(--dim); font-family:'JetBrains Mono'; font-size:13px; }
-.feed-empty .icon { font-size:32px; margin-bottom:16px; opacity:0.3; }
+.fr { display:grid; grid-template-columns:56px 1fr auto; gap:14px; align-items:center; padding:12px 0; border-bottom:1px solid var(--line); font-size:13px; animation:fadeUp .3s ease backwards; }
+.fr:last-child { border:none; }
+.fr .t { color:var(--dimmer); font-family:'JetBrains Mono'; font-size:12px; }
+.fr .c { color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fr .r { font-family:'JetBrains Mono'; font-size:12px; text-align:right; white-space:nowrap; }
+.fr .r.ok { color:var(--accent); }
+.fr .r.det { color:var(--dim); }
+.empty { text-align:center; padding:48px 20px; color:var(--dimmer); font-size:13px; }
+.empty .i { font-size:24px; margin-bottom:12px; opacity:0.4; }
 
-/* Footer */
-.hud-bot {
-  padding:14px 24px; border-top:1px solid var(--line-bright);
-  display:flex; align-items:center; justify-content:space-between;
-  font-family:'JetBrains Mono'; font-size:11px; color:var(--dim);
-}
-.hud-bot .sys { display:flex; gap:20px; }
+.foot { margin-top:24px; text-align:center; font-size:11px; color:var(--dimmer); font-family:'JetBrains Mono'; }
 
-/* Corner brackets */
-.cell { position:relative; }
-.metric-hero::before, .metric-hero::after {
-  content:''; position:absolute; width:12px; height:12px; border-color:var(--accent-dim);
-}
-.metric-hero::before { top:12px; left:12px; border-top:1px solid var(--line-bright); border-left:1px solid var(--line-bright); }
-.metric-hero::after { bottom:12px; right:12px; border-bottom:1px solid var(--line-bright); border-right:1px solid var(--line-bright); }
-
-@media (max-width:900px) {
-  .grid { grid-template-columns:1fr; }
-  .cell { grid-column:span 1 !important; }
-  .metric-hero .huge { font-size:64px; }
-  .feed-row { grid-template-columns:60px 1fr 80px; }
-  .feed-row .btn-tag { display:none; }
-  .status-cluster { display:none; }
+@media (max-width:720px) {
+  .stats { grid-template-columns:repeat(2,1fr); }
+  .row2 { grid-template-columns:1fr; }
 }
 </style>
 </head>
 <body>
+<div class="wrap">
 
-<div class="hud-top">
-  <div class="brand">
-    <div class="logo">GG</div>
-    <div class="brand-txt">
-      <div class="name">MISSION CONTROL</div>
-      <div class="sub">GGWALL · Giveaway Monitor</div>
-    </div>
-  </div>
-  <div class="status-cluster">
-    <div class="stat-item"><span class="live-dot"></span><b id="s-status">ONLINE</b></div>
-    <div class="stat-item">UPTIME <b id="s-uptime">—</b></div>
-    <div class="stat-item">CHANNELS <b id="s-channels">—</b></div>
-  </div>
-</div>
-
-<div class="grid">
-
-  <!-- Hero metric -->
-  <div class="cell metric-hero">
-    <div class="eyebrow">Total Signals Detected</div>
-    <div class="huge" id="m-alerts">0</div>
-    <div class="cap">giveaways spotted across monitored channels</div>
-    <div class="spark" id="spark"></div>
-  </div>
-
-  <!-- Three minis -->
-  <div class="cell metric-tri" style="padding:0;">
-    <div class="mini"><span class="l">Auto-clicks fired</span><span class="v green" id="m-clicks">0</span></div>
-    <div class="mini"><span class="l">Successful claims</span><span class="v blue" id="m-success">0</span></div>
-    <div class="mini"><span class="l">Failed attempts</span><span class="v warn" id="m-fail">0</span></div>
-  </div>
-
-  <!-- Win rate gauge -->
-  <div class="cell gauge-cell">
-    <div class="eyebrow">Hit Rate</div>
-    <div class="gauge-wrap">
-      <div class="gauge">
-        <svg width="120" height="120" viewBox="0 0 120 120">
-          <circle class="track" cx="60" cy="60" r="52"/>
-          <circle class="fill" id="gauge-fill" cx="60" cy="60" r="52" stroke-dasharray="327" stroke-dashoffset="327"/>
-        </svg>
-        <div class="pct" id="g-pct">0%</div>
-      </div>
-      <div class="gauge-info">
-        <div class="big">Claim accuracy</div>
-        <div class="row">success <b id="gi-succ">0</b></div>
-        <div class="row">total <b id="gi-tot">0</b></div>
+  <div class="top">
+    <div class="brand">
+      <div class="mark">GG</div>
+      <div class="txt">
+        <h1>GGWALL Monitor</h1>
+        <p>Giveaway auto-claim</p>
       </div>
     </div>
+    <div class="status"><span class="dot"></span><span id="s-txt">online</span></div>
   </div>
 
-  <!-- Speed -->
-  <div class="cell speed-cell">
-    <div class="eyebrow">Fastest Reaction</div>
-    <div><span class="speed-val" id="m-fastest">—</span><span class="speed-unit">s</span></div>
-    <div class="speed-bar"><div class="f" id="speed-fill"></div></div>
-    <div class="speed-note">lower is better · click latency after edit detected</div>
+  <div class="stats">
+    <div class="stat" style="animation-delay:0ms"><div class="label">Signals</div><div class="val" id="m-alerts">0</div><div class="sub">detected</div></div>
+    <div class="stat" style="animation-delay:40ms"><div class="label">Claims</div><div class="val green" id="m-success">0</div><div class="sub">successful</div></div>
+    <div class="stat" style="animation-delay:80ms"><div class="label">Clicks</div><div class="val blue" id="m-clicks">0</div><div class="sub">fired</div></div>
+    <div class="stat" style="animation-delay:120ms"><div class="label">Missed</div><div class="val amber" id="m-fail">0</div><div class="sub">failed</div></div>
   </div>
 
-  <!-- Channels -->
-  <div class="cell chan-cell">
-    <div class="eyebrow">Watch List</div>
-    <div class="chan-list" id="chan-list"></div>
-  </div>
-
-  <!-- Feed -->
-  <div class="cell feed-cell">
-    <div class="feed-head">
-      <div class="eyebrow" style="margin:0;">Signal Log</div>
-      <div class="feed-live"><span class="c">▶</span> LIVE FEED</div>
+  <div class="row2">
+    <div class="card" style="animation-delay:160ms">
+      <h2>Hit rate</h2>
+      <div class="rate">
+        <div class="ring">
+          <svg width="88" height="88" viewBox="0 0 88 88">
+            <circle class="bg" cx="44" cy="44" r="38"/>
+            <circle class="fg" id="ring" cx="44" cy="44" r="38" stroke-dasharray="239" stroke-dashoffset="239"/>
+          </svg>
+          <div class="num" id="r-pct">0%</div>
+        </div>
+        <div class="rate-meta">
+          <div>success <b id="r-succ">0</b></div>
+          <div>attempts <b id="r-tot">0</b></div>
+        </div>
+      </div>
     </div>
+
+    <div class="card speed" style="animation-delay:200ms">
+      <h2>Fastest reaction</h2>
+      <div class="big"><span id="m-fastest">—</span><span>s</span></div>
+      <div class="track"><div class="fill" id="speed-fill"></div></div>
+      <div class="note">click latency after giveaway detected</div>
+    </div>
+  </div>
+
+  <div class="row2">
+    <div class="card" style="animation-delay:240ms">
+      <h2>Tokens claimed</h2>
+      <div class="tokens" id="tokens"></div>
+    </div>
+
+    <div class="card" style="animation-delay:280ms">
+      <h2>Watching</h2>
+      <div class="chans" id="chans"></div>
+    </div>
+  </div>
+
+  <div class="card feed-card" style="animation-delay:320ms">
+    <h2>Recent activity</h2>
     <div class="feed" id="feed"></div>
   </div>
 
-</div>
-
-<div class="hud-bot">
-  <div>GGWALL MONITOR v3.0 · railway edge</div>
-  <div class="sys">
-    <span>API <b id="f-api" style="color:var(--accent)">OK</b></span>
-    <span>SYNC <span id="f-sync">—</span></span>
-    <span>© 2026</span>
-  </div>
+  <div class="foot">GGWALL v3.0 · updates every 15s</div>
 </div>
 
 <script>
 const API = window.location.origin;
-
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+async function J(p){try{const r=await fetch(API+p);return await r.json();}catch(e){return null;}}
+function anim(el,target,dur=700){const start=parseInt(el.textContent)||0;const t0=performance.now();function s(t){const p=Math.min((t-t0)/dur,1);const e=1-Math.pow(1-p,3);el.textContent=Math.round(start+(target-start)*e);if(p<1)requestAnimationFrame(s);}requestAnimationFrame(s);}
 
-function fmtUptime(startEpoch){
-  // not available; use placeholder from status
-  return '—';
-}
-
-async function fetchJSON(path){
-  try{ const r = await fetch(API+path); return await r.json(); }
-  catch(e){ return null; }
-}
-
-function animateNumber(el, target, dur=800){
-  const start = parseInt(el.textContent) || 0;
-  const t0 = performance.now();
-  function step(t){
-    const p = Math.min((t-t0)/dur, 1);
-    const eased = 1-Math.pow(1-p,3);
-    el.textContent = Math.round(start + (target-start)*eased);
-    if(p<1) requestAnimationFrame(step);
-  }
-  requestAnimationFrame(step);
+// Parse token amounts from alert messages
+function parseTokens(alerts){
+  const totals = {};
+  (alerts||[]).forEach(a=>{
+    if(!a.autoClicked) return; // only count successful claims
+    const msg = (a.message||'') + ' ' + (a.keyword||'');
+    // Match patterns like "0.5 $ATOM", "2.17 $ATOM", "1,666.67 $ATOM1KLFG"
+    const re = /([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]+)/g;
+    let m;
+    while((m = re.exec(msg))!==null){
+      const amt = parseFloat(m[1].replace(/,/g,''));
+      const sym = m[2];
+      if(!isNaN(amt) && amt>0 && amt<10000000){
+        totals[sym] = (totals[sym]||0) + amt;
+      }
+    }
+  });
+  return totals;
 }
 
 async function load(){
-  const stats = await fetchJSON('/api/stats');
-  const settings = await fetchJSON('/api/settings');
-  const alerts = await fetchJSON('/api/alerts');
-  const health = await fetchJSON('/');
+  const [stats,settings,alerts] = await Promise.all([J('/api/stats'),J('/api/settings'),J('/api/alerts')]);
+  if(!stats){document.getElementById('s-txt').textContent='offline';return;}
 
-  if(!stats){ document.getElementById('f-api').textContent='DOWN'; document.getElementById('f-api').style.color='var(--danger)'; return; }
-  document.getElementById('f-api').textContent='OK';
-  document.getElementById('f-api').style.color='var(--accent)';
-  document.getElementById('f-sync').textContent = new Date().toLocaleTimeString('el-GR');
+  anim(document.getElementById('m-alerts'), stats.total_alerts||0);
+  anim(document.getElementById('m-success'), stats.successful_clicks||0);
+  anim(document.getElementById('m-clicks'), stats.total_clicks||0);
+  anim(document.getElementById('m-fail'), stats.failed_clicks||0);
 
-  // Metrics
-  animateNumber(document.getElementById('m-alerts'), stats.total_alerts||0);
-  animateNumber(document.getElementById('m-clicks'), stats.total_clicks||0);
-  animateNumber(document.getElementById('m-success'), stats.successful_clicks||0);
-  animateNumber(document.getElementById('m-fail'), stats.failed_clicks||0);
+  const tot=stats.total_clicks||0, succ=stats.successful_clicks||0;
+  const wr=tot>0?Math.round(succ/tot*100):0;
+  document.getElementById('r-pct').textContent=wr+'%';
+  document.getElementById('r-succ').textContent=succ;
+  document.getElementById('r-tot').textContent=tot;
+  document.getElementById('ring').style.strokeDashoffset=(2*Math.PI*38)*(1-wr/100);
 
-  // Win rate
-  const tot = stats.total_clicks||0;
-  const succ = stats.successful_clicks||0;
-  const wr = tot>0 ? Math.round(succ/tot*100) : 0;
-  document.getElementById('g-pct').textContent = wr+'%';
-  document.getElementById('gi-succ').textContent = succ;
-  document.getElementById('gi-tot').textContent = tot;
-  const circ = 2*Math.PI*52;
-  document.getElementById('gauge-fill').style.strokeDashoffset = circ*(1-wr/100);
+  const fast=stats.fastest_click;
+  document.getElementById('m-fastest').textContent=fast!=null?fast.toFixed(2):'—';
+  if(fast!=null){document.getElementById('speed-fill').style.width=Math.max(5,Math.min(100,(20-fast)/20*100))+'%';}
 
-  // Fastest
-  const fast = stats.fastest_click;
-  document.getElementById('m-fastest').textContent = fast!=null ? fast.toFixed(2) : '—';
-  if(fast!=null){
-    // map 0-2s → 100-0% (faster=fuller)
-    const pct = Math.max(0, Math.min(100, (2-fast)/2*100));
-    document.getElementById('speed-fill').style.width = pct+'%';
+  // Tokens (from stats.tokens - accurate accumulation)
+  const tk = stats.tokens || {};
+  const tel = document.getElementById('tokens');
+  const keys = Object.keys(tk).sort((a,b)=>tk[b]-tk[a]);
+  if(keys.length===0){
+    tel.innerHTML='<div class="token-empty">no claims recorded yet</div>';
+  } else {
+    tel.innerHTML=keys.slice(0,6).map(k=>{
+      const v=tk[k];
+      const disp=v>=1000?v.toLocaleString('en-US',{maximumFractionDigits:0}):(v%1===0?String(v):v.toFixed(2));
+      return `<div class="token-row"><span class="name">$${esc(k)}</span><span class="amt">${disp}</span></div>`;
+    }).join('');
   }
 
-  // Status
-  if(settings){
-    document.getElementById('s-channels').textContent = (settings.channels||[]).length;
-    // Channels list
-    const cl = document.getElementById('chan-list');
-    cl.innerHTML = (settings.channels||[]).map((c,i)=>`
-      <div class="chan-row" style="animation-delay:${i*60}ms">
-        <span class="dot"></span>
-        <span class="nm">${esc(c)}</span>
-        <span class="ct">watching</span>
-      </div>`).join('') || '<div style="color:var(--dim);font-family:JetBrains Mono;font-size:12px">no channels configured</div>';
-  }
-  document.getElementById('s-channels').textContent = (settings?.channels||[]).length;
-
-  // Spark (from alerts per hour, simplified: last 12 alerts as bars)
-  const spark = document.getElementById('spark');
-  const n = 16;
-  const bars = [];
-  for(let i=0;i<n;i++){
-    const h = 20 + Math.random()*20; // ambient
-    bars.push(h);
-  }
-  // If we have alerts, bias last bars up
-  const aCount = (alerts||[]).length;
-  spark.innerHTML = bars.map((h,i)=>{
-    const boost = (alerts && i>=n-Math.min(aCount,n)) ? 100 : h;
-    return `<span style="height:${Math.min(100,boost)}%"></span>`;
-  }).join('');
+  // Channels
+  const cel=document.getElementById('chans');
+  cel.innerHTML=(settings?.channels||[]).map(c=>`<span class="chip"><span class="d"></span>${esc(c)}</span>`).join('')||'<div class="token-empty">none</div>';
 
   // Feed
-  const feed = document.getElementById('feed');
-  if(!alerts || alerts.length===0){
-    feed.innerHTML = `<div class="feed-empty"><div class="icon">◎</div>No signals yet. Standing by for the next giveaway…</div>`;
+  const fel=document.getElementById('feed');
+  if(!alerts||alerts.length===0){
+    fel.innerHTML='<div class="empty"><div class="i">○</div>Waiting for the next giveaway…</div>';
   } else {
-    feed.innerHTML = alerts.slice(0,20).map((a,i)=>{
-      const ok = a.autoClicked;
-      const result = ok ? `✓ ${a.clickTime||''}` : (a.keyword && a.keyword.toLowerCase().includes('claim') ? 'detected' : 'alert');
-      const cls = ok ? 'ok' : '';
-      return `<div class="feed-row" style="animation-delay:${i*40}ms">
-        <span class="time">${esc(a.time||'')}</span>
-        <span class="chan">${esc(a.channel||'Unknown')}</span>
-        <span class="btn-tag">${esc(a.keyword||'')}</span>
-        <span class="result ${cls}">${esc(result)}</span>
-      </div>`;
+    fel.innerHTML=alerts.slice(0,15).map((a,i)=>{
+      const ok=a.autoClicked;
+      const r=ok?`✓ ${a.clickTime||''}`:'detected';
+      return `<div class="fr" style="animation-delay:${i*30}ms"><span class="t">${esc(a.time||'')}</span><span class="c">${esc(a.channel||'—')}</span><span class="r ${ok?'ok':'det'}">${esc(r)}</span></div>`;
     }).join('');
   }
 }
-
 load();
-setInterval(load, 5000);
+setInterval(load,15000);
 </script>
 </body>
 </html>
