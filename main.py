@@ -51,7 +51,11 @@ DEFAULT_SETTINGS = {
     "click_words": ["claim", "join"],
     "sound": True,
     "owner_id": None,
-    "auto_detect": True  # ανίχνευση νέων καναλιών
+    "auto_detect": True,  # ανίχνευση νέων καναλιών
+    "smart_delay": True,  # έξυπνη καθυστέρηση βάσει ποσού
+    "delay_tiny": 10.0,   # < 0.5 token/χρήστη → 10s
+    "delay_small": 5.0,   # 0.5-1 token/χρήστη → 5s
+    "delay_many_people": 2.0  # +2s αν 20+ χρήστες
 }
 
 DEFAULT_STATS = {
@@ -167,36 +171,83 @@ async def fetch_my_channels():
 CHANNEL_LINK_RE = re.compile(r't\.me/(?:joinchat/)?([a-zA-Z0-9_+]+)')
 
 # ============ TOKEN PARSER ============
-# Πιάνει "0.38 $ATOM each" ή "0.5 $ATOM" - το ποσό ΑΝΑ άτομο
-TOKEN_EACH_RE = re.compile(r'([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})\s*each', re.IGNORECASE)
-TOKEN_ANY_RE = re.compile(r'([\d,]+\.?\d*)\s*\$([A-Z][A-Z0-9]{1,15})')
+# Έτοιμα patterns για τα βασικά νομίσματα (πιο αξιόπιστα)
+# Πιάνει: "0.38 $ATOM each", "2.17 $ATOM", "1,666.67 $ATOM1KLFG each"
+TOKEN_PATTERNS = [
+    # "X $TOKEN each" - το ποσό ανά νικητή (προτεραιότητα)
+    re.compile(r'([\d,]+\.?\d*)\s*\$?(ATOM1KLFG)\s*each', re.IGNORECASE),
+    re.compile(r'([\d,]+\.?\d*)\s*\$?(ATOM)\s*each', re.IGNORECASE),
+    # Generic "X $TOKEN each"
+    re.compile(r'([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})\s*each', re.IGNORECASE),
+]
+TOKEN_FALLBACK_RE = re.compile(r'([\d,]+\.?\d*)\s*\$([A-Z][A-Z0-9]{1,15})')
 
 def extract_token(msg_text):
-    """Βρίσκει πόσα tokens παίρνει ο κάθε νικητής (το 'each' amount)"""
+    """
+    Επιστρέφει (amount_per_winner, symbol) ή (None, None)
+    Ψάχνει πρώτα ATOM1KLFG, μετά ATOM, μετά generic 'each', μετά fallback
+    """
     if not msg_text:
         return None, None
-    # Προτίμησε το "X TOKEN each" (το ποσό ανά άτομο)
-    m = TOKEN_EACH_RE.search(msg_text)
-    if not m:
-        # Αλλιώς πάρε το πρώτο $TOKEN που δεν είναι το σύνολο
-        matches = TOKEN_ANY_RE.findall(msg_text)
-        if len(matches) >= 2:
-            # Το δεύτερο συνήθως είναι το "each"
-            m2 = matches[1]
+    # Δοκίμασε τα έτοιμα patterns με σειρά προτεραιότητας
+    for pat in TOKEN_PATTERNS:
+        m = pat.search(msg_text)
+        if m:
             try:
-                return float(m2[0].replace(',', '')), m2[1].upper()
+                return float(m.group(1).replace(',', '')), m.group(2).upper()
             except:
-                return None, None
-        elif len(matches) == 1:
-            try:
-                return float(matches[0][0].replace(',', '')), matches[0][1].upper()
-            except:
-                return None, None
-        return None, None
-    try:
-        return float(m.group(1).replace(',', '')), m.group(2).upper()
-    except:
-        return None, None
+                continue
+    # Fallback: αν υπάρχουν 2+ $TOKEN, το 2ο είναι συνήθως το 'each'
+    matches = TOKEN_FALLBACK_RE.findall(msg_text)
+    if len(matches) >= 2:
+        try:
+            return float(matches[1][0].replace(',', '')), matches[1][1].upper()
+        except:
+            pass
+    elif len(matches) == 1:
+        try:
+            return float(matches[0][0].replace(',', '')), matches[0][1].upper()
+        except:
+            pass
+    return None, None
+
+
+# Πιάνει "to 40 people", "to 2 people"
+PEOPLE_RE = re.compile(r'to\s+(\d+)\s+people', re.IGNORECASE)
+
+def extract_people(msg_text):
+    """Βρίσκει πόσοι χρήστες μπορούν να κάνουν claim"""
+    if not msg_text:
+        return None
+    m = PEOPLE_RE.search(msg_text)
+    if m:
+        try:
+            return int(m.group(1))
+        except:
+            return None
+    return None
+
+
+def calc_delay(amount, people):
+    """
+    Υπολογίζει πόσα δευτερόλεπτα να περιμένει πριν το claim.
+    Λογική:
+    - Μικρό ποσό ανά χρήστη → περίμενε περισσότερο
+    - Πολλοί χρήστες → περίμενε λίγο ακόμα (γεμίζει πιο αργά)
+    """
+    delay = 0
+    # Βάσει ποσού
+    if amount is not None:
+        if amount < 0.5:
+            delay = settings.get("delay_tiny", 10.0)    # πολύ μικρό
+        elif amount < 1.0:
+            delay = settings.get("delay_small", 5.0)    # μικρό
+        else:
+            delay = 0  # καλό ποσό → αμέσως
+    # Extra delay αν πολλοί χρήστες (γεμίζει αργά, έχεις χρόνο)
+    if people is not None and people >= 20 and delay > 0:
+        delay += settings.get("delay_many_people", 2.0)
+    return delay
 
 async def check_new_channels(msg_text):
     """Ψάχνει links για νέα κανάλια στο μήνυμα"""
@@ -332,6 +383,15 @@ async def on_msg(event):
         # Auto-click
         clicked = False; ctime = ""
         if settings.get("auto_click", False) and found_btn:
+            # Smart delay: κλιμακωτή καθυστέρηση βάσει ποσού + αριθμού χρηστών
+            delay_applied = 0
+            if settings.get("smart_delay", True):
+                tok_amt, tok_sym = extract_token(msg_text)
+                ppl = extract_people(msg_text)
+                delay_applied = calc_delay(tok_amt, ppl)
+                if delay_applied > 0:
+                    logger.info(f"💤 Delay {delay_applied}s (amount:{tok_amt} {tok_sym}, people:{ppl})")
+                    await asyncio.sleep(delay_applied)
             for b in found_btn:
                 try:
                     t1 = time.time()
@@ -376,11 +436,13 @@ def menu_buttons():
     ac = "🟢" if settings.get("auto_click") else "🔴"
     bo = "🟢" if settings.get("buttons_only") else "🔴"
     ad = "🟢" if settings.get("auto_detect") else "🔴"
+    sd = "🟢" if settings.get("smart_delay") else "🔴"
     rows = [
         [Button.inline("📋 Λέξεις", b"keywords"), Button.inline("📡 Κανάλια", b"channels")],
         [Button.inline("🏷️ Λέξεις κουμπιών", b"clickwords"), Button.inline("📊 Στατιστικά", b"stats")],
         [Button.inline(f"⚡ Auto-click {ac}", b"toggle_ac"), Button.inline(f"🎯 Μόνο κουμπιά {bo}", b"toggle_bo")],
-        [Button.inline(f"🆕 Auto-detect {ad}", b"toggle_ad")],
+        [Button.inline(f"🆕 Auto-detect {ad}", b"toggle_ad"), Button.inline(f"💤 Smart-delay {sd}", b"toggle_sd")],
+        [Button.inline("⏱️ Ρυθμίσεις καθυστέρησης", b"delays")],
     ]
     dash = os.getenv('RAILWAY_PUBLIC_DOMAIN', '')
     if dash:
@@ -483,6 +545,42 @@ async def on_cb(event):
         elif data == "toggle_ad":
             settings["auto_detect"] = not settings.get("auto_detect", True)
             save_settings(settings); await event.edit(menu_text(), buttons=menu_buttons())
+        elif data == "toggle_sd":
+            settings["smart_delay"] = not settings.get("smart_delay", True)
+            save_settings(settings); await event.edit(menu_text(), buttons=menu_buttons())
+
+        elif data == "delays":
+            dt = settings.get("delay_tiny", 10.0)
+            ds = settings.get("delay_small", 5.0)
+            dp = settings.get("delay_many_people", 2.0)
+            text = (
+                "⏱️ **Ρυθμίσεις Καθυστέρησης**\n"
+                "─────────────────────\n\n"
+                "Πόσο περιμένει πριν το claim,\n"
+                "βάσει ποσού ανά χρήστη:\n\n"
+                f"🐌 **Πολύ μικρό** `< 0.5`  →  **{dt:g}s**\n"
+                f"🚶 **Μικρό** `0.5–1`  →  **{ds:g}s**\n"
+                f"⚡ **Καλό** `≥ 1`  →  **0s** (αμέσως)\n\n"
+                f"➕ **Bonus** αν 20+ άτομα  →  **+{dp:g}s**\n\n"
+                "_Πάτησε για αλλαγή:_"
+            )
+            btns = [
+                [Button.inline(f"🐌 Πολύ μικρό: {dt:g}s", b"set_tiny")],
+                [Button.inline(f"🚶 Μικρό: {ds:g}s", b"set_small")],
+                [Button.inline(f"➕ Bonus πολλών: {dp:g}s", b"set_many")],
+                [Button.inline("← Πίσω", b"back")]
+            ]
+            await event.edit(text, buttons=btns)
+
+        elif data == "set_tiny":
+            user_states[event.sender_id] = "SET_TINY"
+            await event.edit("⏱️ Γράψε δευτερόλεπτα για **πολύ μικρά** ποσά (< 0.5):\n\n_π.χ. 15_")
+        elif data == "set_small":
+            user_states[event.sender_id] = "SET_SMALL"
+            await event.edit("⏱️ Γράψε δευτερόλεπτα για **μικρά** ποσά (0.5–1):\n\n_π.χ. 5_")
+        elif data == "set_many":
+            user_states[event.sender_id] = "SET_MANY"
+            await event.edit("⏱️ Γράψε extra δευτερόλεπτα για **20+ άτομα**:\n\n_π.χ. 2_")
 
         elif data == "test_claim":
             await event.answer("✅ Claimed! (Test)")
@@ -570,6 +668,18 @@ async def on_text(event):
                 settings.setdefault("click_words", []).append(c); save_settings(settings)
                 await event.reply(f"✅ Button word: **{c}**")
             else: await event.reply("⚠️ Υπάρχει")
+        elif st in ("SET_TINY", "SET_SMALL", "SET_MANY"):
+            try:
+                val = float(t.replace(",", ".").strip())
+                if val < 0 or val > 120:
+                    await event.reply("⚠️ Βάλε αριθμό 0-120")
+                else:
+                    key = {"SET_TINY": "delay_tiny", "SET_SMALL": "delay_small", "SET_MANY": "delay_many_people"}[st]
+                    settings[key] = val
+                    save_settings(settings)
+                    await event.reply(f"✅ Ρυθμίστηκε: **{val:g}s**")
+            except ValueError:
+                await event.reply("⚠️ Βάλε έγκυρο αριθμό (π.χ. 10)")
     except Exception as e:
         logger.error(f"Text: {e}")
 
@@ -629,11 +739,27 @@ async def start_api():
 # ============ MAIN ============
 async def main():
     logger.info("🚀 GGWALL Monitor v3.0...")
+    # Backfill tokens από παλιά alerts (αν δεν έχουν καταγραφεί)
+    try:
+        if not stats.get("tokens"):
+            old_alerts = load_alerts()
+            backfilled = {}
+            for a in old_alerts:
+                if a.get("autoClicked"):
+                    amt, sym = extract_token(a.get("message", ""))
+                    if amt and sym:
+                        backfilled[sym] = round(backfilled.get(sym, 0) + amt, 4)
+            if backfilled:
+                stats["tokens"] = backfilled
+                save_stats(stats)
+                logger.info(f"💰 Backfilled tokens: {backfilled}")
+    except Exception as e:
+        logger.error(f"Backfill: {e}")
     await user_client.start(); logger.info("✅ User!")
     await fetch_my_channels()
     await bot_client.start(bot_token=BOT_TOKEN); logger.info("✅ Bot!")
     await start_api()
-    logger.info(f"✅ Ready! {len(settings.get('channels',[]))} channels, auto-detect:{settings.get('auto_detect')}")
+    logger.info(f"✅ Ready! {len(settings.get('channels',[]))} channels, auto-detect:{settings.get('auto_detect')}, smart-delay:{settings.get('smart_delay')}")
     await asyncio.gather(user_client.run_until_disconnected(), bot_client.run_until_disconnected())
 
 if __name__ == '__main__':
