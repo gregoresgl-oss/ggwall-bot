@@ -7,6 +7,7 @@ GGWALL Keyword Monitor Bot v3.0
 """
 import os
 import asyncio
+import copy
 import json
 import time
 import re
@@ -55,7 +56,6 @@ DEFAULT_SETTINGS = {
     "auto_click": True,
     "buttons_only": True,
     "click_words": ["claim", "join"],
-    "sound": True,
     "owner_id": None,
     "auto_detect": True,  # ανίχνευση νέων καναλιών
     "smart_delay": True,  # έξυπνη καθυστέρηση βάσει ποσού
@@ -95,11 +95,11 @@ def load_settings():
             with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
                 s = json.load(f)
                 for k, v in DEFAULT_SETTINGS.items():
-                    s.setdefault(k, v)
+                    s.setdefault(k, copy.deepcopy(v))
                 return s
     except Exception as e:
         logger.error(f"Settings load: {e}")
-    return DEFAULT_SETTINGS.copy()
+    return copy.deepcopy(DEFAULT_SETTINGS)
 
 def save_settings(s):
     try:
@@ -115,11 +115,11 @@ def load_stats():
             with open(STATS_FILE, 'r', encoding='utf-8') as f:
                 s = json.load(f)
                 for k, v in DEFAULT_STATS.items():
-                    s.setdefault(k, v)
+                    s.setdefault(k, copy.deepcopy(v))
                 return s
     except Exception:
         pass
-    return DEFAULT_STATS.copy()
+    return copy.deepcopy(DEFAULT_STATS)
 
 def save_stats(s):
     try:
@@ -183,8 +183,8 @@ TOKEN_PATTERNS = [
     # "X $TOKEN each" - το ποσό ανά νικητή (προτεραιότητα)
     re.compile(r'([\d,]+\.?\d*)\s*\$?(ATOM1KLFG)\s*each', re.IGNORECASE),
     re.compile(r'([\d,]+\.?\d*)\s*\$?(ATOM)\s*each', re.IGNORECASE),
-    # Generic "X $TOKEN each"
-    re.compile(r'([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})\s*each', re.IGNORECASE),
+    # Generic "X $TOKEN each" — απαιτεί $ για να μη ματσάρει "40 people each"
+    re.compile(r'([\d,]+\.?\d*)\s*\$([A-Z][A-Z0-9]{1,15})\s*each', re.IGNORECASE),
 ]
 TOKEN_FALLBACK_RE = re.compile(r'([\d,]+\.?\d*)\s*\$([A-Z][A-Z0-9]{1,15})')
 
@@ -586,7 +586,7 @@ async def on_cb(event):
             await event.edit(text, buttons=buttons)
 
         elif data == "reset_stats":
-            stats = DEFAULT_STATS.copy()
+            stats = copy.deepcopy(DEFAULT_STATS)
             save_stats(stats)
             await event.answer("✅ Reset!")
             await event.edit(menu_text(), buttons=menu_buttons())
@@ -641,8 +641,6 @@ async def on_cb(event):
             user_states[event.sender_id] = "SET_MANY"
             await event.edit("⏱️ Γράψε extra δευτερόλεπτα για **20+ άτομα**:\n\n_π.χ. 2_")
 
-        elif data == "test_claim":
-            await event.answer("✅ Claimed! (Test)")
         elif data == "refresh":
             await event.edit("🔄 Ανανέωση...")
             await fetch_my_channels()
@@ -743,40 +741,16 @@ async def on_text(event):
     except Exception as e:
         logger.error(f"Text: {e}")
 
-# ============ TEST ============
-async def send_test():
-    if not owner_id: return
-    try:
-        await bot_client.send_message(owner_id,
-            "🔔 **Νέο match**\n\n📡 Κανάλι  **Test Channel**\n🖱️ Button  **Claim 0/5**\n\n> 💬 Test — ΟΛΑ δουλεύουν!",
-            buttons=[[Button.url("👁️ Δες το μήνυμα", "https://t.me/test")]], link_preview=False)
-        logger.info("🧪 Test sent")
-    except Exception as e:
-        logger.error(f"Test: {e}")
-
 # ============ API ============
 def cors(): return {"Access-Control-Allow-Origin": "*"}
 async def a_settings(r): return web.json_response(settings, headers=cors())
 async def a_stats(r): return web.json_response(stats, headers=cors())
 async def a_alerts(r): return web.json_response(load_alerts(), headers=cors())
-async def a_test(r):
-    await send_test(); return web.json_response({"ok": True}, headers=cors())
-async def a_test_btn(r):
-    try:
-        tc = None
-        for ch in my_channels:
-            if 'test' in ch['title'].lower() or 'ggwallmsg' in (ch.get('username','') or '').lower():
-                tc = ch; break
-        if not tc: return web.json_response({"ok": False}, headers=cors())
-        await bot_client.send_message(tc['id'], "🧪 **Test**\n\nPress button!", buttons=[Button.inline("Claim 0/5", b"test_claim")])
-        return web.json_response({"ok": True}, headers=cors())
-    except Exception as e:
-        return web.json_response({"ok": False, "error": str(e)}, headers=cors())
 async def a_health(r): return web.json_response({"status": "running", "owner": owner_id}, headers=cors())
 
 async def a_dashboard(r):
     try:
-        dpath = Path("dashboard.html")
+        dpath = Path(__file__).parent / "dashboard.html"
         if dpath.exists():
             return web.Response(text=dpath.read_text(encoding='utf-8'), content_type='text/html')
         return web.Response(text="Dashboard not found", status=404)
@@ -790,8 +764,6 @@ async def start_api():
     app.router.add_get('/api/settings', a_settings)
     app.router.add_get('/api/stats', a_stats)
     app.router.add_get('/api/alerts', a_alerts)
-    app.router.add_get('/api/test', a_test)
-    app.router.add_get('/api/test_button', a_test_btn)
     runner = web.AppRunner(app); await runner.setup()
     await web.TCPSite(runner, '0.0.0.0', 8080).start()
     logger.info("🌐 API: 8080 · Dashboard: /")
