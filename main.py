@@ -27,6 +27,9 @@ API_ID = int(os.getenv('API_ID', '0'))
 API_HASH = os.getenv('API_HASH', '')
 BOT_TOKEN = os.getenv('BOT_TOKEN', '')
 SESSION_STRING = os.getenv('SESSION_STRING', '')
+# Owner lock: μόνο αυτό το user ID μπορεί να χρησιμοποιήσει το bot
+# Αν είναι κενό, ο πρώτος που κάνει /start γίνεται owner (μία φορά)
+AUTHORIZED_USER_ID = int(os.getenv('AUTHORIZED_USER_ID', '0'))
 
 if not API_ID or not API_HASH or not BOT_TOKEN:
     logger.error("Missing credentials!")
@@ -465,11 +468,43 @@ def menu_text():
     return (f"⚙️ **GGWALL Monitor** `v3.0`\n"
             f"🟢 Online · uptime {upt}")
 
+
+def is_authorized(user_id):
+    """Ελέγχει αν ο χρήστης έχει δικαίωμα να χρησιμοποιήσει το bot"""
+    # Αν έχει οριστεί AUTHORIZED_USER_ID, μόνο αυτός επιτρέπεται
+    if AUTHORIZED_USER_ID:
+        return user_id == AUTHORIZED_USER_ID
+    # Αλλιώς, μόνο ο αποθηκευμένος owner (πρώτος που έκανε /start)
+    saved = settings.get("owner_id")
+    if saved:
+        return user_id == saved
+    # Κανένας owner ακόμα → επίτρεψε (θα γίνει owner)
+    return True
+
+
+@bot_client.on(events.NewMessage(pattern='/whoami'))
+async def cmd_whoami(event):
+    try:
+        uid = event.sender_id
+        await event.respond(
+            f"🆔 Το User ID σου είναι:\n\n`{uid}`\n\n"
+            f"Βάλ' το στο Railway ως `AUTHORIZED_USER_ID` "
+            f"για να κλειδώσεις το bot μόνο για σένα."
+        )
+    except Exception as e:
+        logger.error(f"Whoami: {e}")
+
+
 @bot_client.on(events.NewMessage(pattern='/start'))
 async def cmd_start(event):
     global owner_id
     try:
-        owner_id = event.sender_id
+        uid = event.sender_id
+        if not is_authorized(uid):
+            await event.respond("🔒 Δεν έχεις πρόσβαση σε αυτό το bot.")
+            logger.warning(f"⛔ Unauthorized /start from {uid}")
+            return
+        owner_id = uid
         settings["owner_id"] = owner_id
         save_settings(settings)
         logger.info(f"Owner: {owner_id}")
@@ -481,6 +516,9 @@ async def cmd_start(event):
 async def on_cb(event):
     global settings, stats
     try:
+        if not is_authorized(event.sender_id):
+            await event.answer("🔒 Δεν έχεις πρόσβαση", alert=True)
+            return
         data = event.data.decode('utf-8')
 
         if data == "keywords":
@@ -651,6 +689,7 @@ async def on_text(event):
     global settings
     try:
         sid = event.sender_id
+        if not is_authorized(sid): return
         if sid not in user_states: return
         if not event.message.text or event.message.text.startswith("/"): return
         st = user_states.pop(sid); t = event.message.text.strip()
