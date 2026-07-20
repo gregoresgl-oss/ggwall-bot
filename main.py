@@ -442,12 +442,23 @@ def menu_buttons():
     ac = "🟢" if settings.get("auto_click") else "🔴"
     bo = "🟢" if settings.get("buttons_only") else "🔴"
     ad = "🟢" if settings.get("auto_detect") else "🔴"
-    sd = "🟢" if settings.get("smart_delay") else "🔴"
+    # Smart-delay: κλειδωμένο αν Auto-click OFF (δεν χρησιμοποιείται)
+    if settings.get("auto_click"):
+        sd = "🟢" if settings.get("smart_delay") else "🔴"
+        sd_label = f"💤 Smart-delay {sd}"
+    else:
+        sd_label = "💤 Smart-delay 🔒"
+    # Λέξεις (text): κλειδωμένο αν Buttons Only ON (αγνοούνται)
+    if settings.get("buttons_only"):
+        kw_label = "📋 Λέξεις 🔒"
+    else:
+        kw_label = "📋 Λέξεις"
+
     rows = [
-        [Button.inline("📋 Λέξεις", b"keywords"), Button.inline("📡 Κανάλια", b"channels")],
+        [Button.inline(kw_label, b"keywords"), Button.inline("📡 Κανάλια", b"channels")],
         [Button.inline("🏷️ Λέξεις κουμπιών", b"clickwords"), Button.inline("📊 Στατιστικά", b"stats")],
         [Button.inline(f"⚡ Auto-click {ac}", b"toggle_ac"), Button.inline(f"🎯 Μόνο κουμπιά {bo}", b"toggle_bo")],
-        [Button.inline(f"🆕 Auto-detect {ad}", b"toggle_ad"), Button.inline(f"💤 Smart-delay {sd}", b"toggle_sd")],
+        [Button.inline(f"🆕 Auto-detect {ad}", b"toggle_ad"), Button.inline(sd_label, b"toggle_sd")],
         [Button.inline("⏱️ Ρυθμίσεις καθυστέρησης", b"delays")],
     ]
     dash = os.getenv('RAILWAY_PUBLIC_DOMAIN', '')
@@ -525,7 +536,10 @@ async def on_cb(event):
             btns = [[Button.inline(f"🗑️ {k}", f"rmkw_{k}".encode())] for k in settings.get("keywords", [])]
             btns.append([Button.inline("➕ Προσθήκη", b"add_kw")]); btns.append([Button.inline("← Πίσω", b"back")])
             kl = settings.get("keywords", [])
-            await event.edit("📋 **Λέξεις-Κλειδιά**\n─────────────────────\n\n" + ("\n".join(f"• {k}" for k in kl) if kl else "_Κενό_"), buttons=btns)
+            lock_note = ""
+            if settings.get("buttons_only"):
+                lock_note = "\n\n🔒 _Ανενεργές — το 'Μόνο κουμπιά' είναι ON.\nΓια να δουλέψουν, σβήσε το 'Μόνο κουμπιά'._"
+            await event.edit("📋 **Λέξεις-Κλειδιά**\n─────────────────────\n\n" + ("\n".join(f"• {k}" for k in kl) if kl else "_Κενό_") + lock_note, buttons=btns)
 
         elif data == "channels":
             btns = [[Button.inline(f"🗑️ {c}", f"rmch_{c}".encode())] for c in settings.get("channels", [])]
@@ -587,8 +601,12 @@ async def on_cb(event):
             settings["auto_detect"] = not settings.get("auto_detect", True)
             save_settings(settings); await event.edit(menu_text(), buttons=menu_buttons())
         elif data == "toggle_sd":
-            settings["smart_delay"] = not settings.get("smart_delay", True)
-            save_settings(settings); await event.edit(menu_text(), buttons=menu_buttons())
+            if not settings.get("auto_click"):
+                await event.answer("🔒 Άναψε πρώτα το Auto-click!", alert=True)
+            else:
+                settings["smart_delay"] = not settings.get("smart_delay", True)
+                save_settings(settings)
+                await event.edit(menu_text(), buttons=menu_buttons())
 
         elif data == "delays":
             dt = settings.get("delay_tiny", 10.0)
