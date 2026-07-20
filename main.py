@@ -61,6 +61,7 @@ DEFAULT_SETTINGS = {
     "smart_delay": True,  # έξυπνη καθυστέρηση βάσει ποσού
     "delay_tiny": 10.0,   # < 0.5 token/χρήστη → 10s
     "delay_small": 5.0,   # 0.5-1 token/χρήστη → 5s
+    "delay_good": 0.0,    # ≥ 1 token/χρήστη → 0s (αμέσως by default)
     "delay_many_people": 2.0  # +2s αν 20+ χρήστες
 }
 
@@ -249,7 +250,7 @@ def calc_delay(amount, people):
         elif amount < 1.0:
             delay = settings.get("delay_small", 5.0)    # μικρό
         else:
-            delay = 0  # καλό ποσό → αμέσως
+            delay = settings.get("delay_good", 0.0)     # καλό (default 0s = αμέσως)
     # Extra delay αν πολλοί χρήστες (γεμίζει αργά, έχεις χρόνο)
     if people is not None and people >= 20 and delay > 0:
         delay += settings.get("delay_many_people", 2.0)
@@ -611,7 +612,9 @@ async def on_cb(event):
         elif data == "delays":
             dt = settings.get("delay_tiny", 10.0)
             ds = settings.get("delay_small", 5.0)
+            dg = settings.get("delay_good", 0.0)
             dp = settings.get("delay_many_people", 2.0)
+            good_txt = f"**{dg:g}s**" if dg > 0 else "**0s** (αμέσως)"
             text = (
                 "⏱️ **Ρυθμίσεις Καθυστέρησης**\n"
                 "─────────────────────\n\n"
@@ -619,13 +622,14 @@ async def on_cb(event):
                 "βάσει ποσού ανά χρήστη:\n\n"
                 f"🐌 **Πολύ μικρό** `< 0.5`  →  **{dt:g}s**\n"
                 f"🚶 **Μικρό** `0.5–1`  →  **{ds:g}s**\n"
-                f"⚡ **Καλό** `≥ 1`  →  **0s** (αμέσως)\n\n"
+                f"⚡ **Καλό** `≥ 1`  →  {good_txt}\n\n"
                 f"➕ **Bonus** αν 20+ άτομα  →  **+{dp:g}s**\n\n"
                 "_Πάτησε για αλλαγή:_"
             )
             btns = [
                 [Button.inline(f"🐌 Πολύ μικρό: {dt:g}s", b"set_tiny")],
                 [Button.inline(f"🚶 Μικρό: {ds:g}s", b"set_small")],
+                [Button.inline(f"⚡ Καλό: {dg:g}s", b"set_good")],
                 [Button.inline(f"➕ Bonus πολλών: {dp:g}s", b"set_many")],
                 [Button.inline("← Πίσω", b"back")]
             ]
@@ -637,6 +641,9 @@ async def on_cb(event):
         elif data == "set_small":
             user_states[event.sender_id] = "SET_SMALL"
             await event.edit("⏱️ Γράψε δευτερόλεπτα για **μικρά** ποσά (0.5–1):\n\n_π.χ. 5_")
+        elif data == "set_good":
+            user_states[event.sender_id] = "SET_GOOD"
+            await event.edit("⏱️ Γράψε δευτερόλεπτα για **καλά** ποσά (≥ 1):\n\n_0 = αμέσως · π.χ. 3_")
         elif data == "set_many":
             user_states[event.sender_id] = "SET_MANY"
             await event.edit("⏱️ Γράψε extra δευτερόλεπτα για **20+ άτομα**:\n\n_π.χ. 2_")
@@ -726,13 +733,18 @@ async def on_text(event):
                 settings.setdefault("click_words", []).append(c); save_settings(settings)
                 await event.reply(f"✅ Button word: **{c}**")
             else: await event.reply("⚠️ Υπάρχει")
-        elif st in ("SET_TINY", "SET_SMALL", "SET_MANY"):
+        elif st in ("SET_TINY", "SET_SMALL", "SET_GOOD", "SET_MANY"):
             try:
                 val = float(t.replace(",", ".").strip())
                 if val < 0 or val > 120:
                     await event.reply("⚠️ Βάλε αριθμό 0-120")
                 else:
-                    key = {"SET_TINY": "delay_tiny", "SET_SMALL": "delay_small", "SET_MANY": "delay_many_people"}[st]
+                    key = {
+                        "SET_TINY": "delay_tiny",
+                        "SET_SMALL": "delay_small",
+                        "SET_GOOD": "delay_good",
+                        "SET_MANY": "delay_many_people"
+                    }[st]
                     settings[key] = val
                     save_settings(settings)
                     await event.reply(f"✅ Ρυθμίστηκε: **{val:g}s**")
