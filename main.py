@@ -18,6 +18,9 @@ from telethon.sessions import StringSession
 
 logging.basicConfig(format='%(asctime)s [%(levelname)s] %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
+# Σβήσε τα noisy logs (γεμίζουν το Railway)
+logging.getLogger('aiohttp.access').setLevel(logging.WARNING)
+logging.getLogger('telethon').setLevel(logging.WARNING)
 
 # ============ CREDENTIALS ============
 API_ID = int(os.getenv('API_ID', '0'))

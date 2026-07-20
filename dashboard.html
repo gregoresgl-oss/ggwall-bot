@@ -170,7 +170,7 @@ body { min-height:100vh; }
     <div class="feed" id="feed"></div>
   </div>
 
-  <div class="foot">GGWALL v3.0 · updates every 15s</div>
+  <div class="foot">GGWALL v3.0 · <span id="last-upd">—</span> · <span id="refresh-btn" style="color:var(--accent);cursor:pointer;text-decoration:underline;">refresh</span></div>
 </div>
 
 <script>
@@ -202,7 +202,11 @@ function parseTokens(alerts){
 async function load(){
   const [stats,settings,alerts] = await Promise.all([J('/api/stats'),J('/api/settings'),J('/api/alerts')]);
   if(!stats){document.getElementById('s-txt').textContent='offline';return;}
+  render(stats, settings, alerts);
+  document.getElementById('last-upd').textContent = 'updated ' + new Date().toLocaleTimeString('el-GR');
+}
 
+function render(stats, settings, alerts){
   anim(document.getElementById('m-alerts'), stats.total_alerts||0);
   anim(document.getElementById('m-success'), stats.successful_clicks||0);
   anim(document.getElementById('m-clicks'), stats.total_clicks||0);
@@ -219,7 +223,6 @@ async function load(){
   document.getElementById('m-fastest').textContent=fast!=null?fast.toFixed(2):'—';
   if(fast!=null){document.getElementById('speed-fill').style.width=Math.max(5,Math.min(100,(20-fast)/20*100))+'%';}
 
-  // Tokens (from stats.tokens - accurate accumulation)
   const tk = stats.tokens || {};
   const tel = document.getElementById('tokens');
   const keys = Object.keys(tk).sort((a,b)=>tk[b]-tk[a]);
@@ -233,11 +236,9 @@ async function load(){
     }).join('');
   }
 
-  // Channels
   const cel=document.getElementById('chans');
   cel.innerHTML=(settings?.channels||[]).map(c=>`<span class="chip"><span class="d"></span>${esc(c)}</span>`).join('')||'<div class="token-empty">none</div>';
 
-  // Feed
   const fel=document.getElementById('feed');
   if(!alerts||alerts.length===0){
     fel.innerHTML='<div class="empty"><div class="i">○</div>Waiting for the next giveaway…</div>';
@@ -249,8 +250,16 @@ async function load(){
     }).join('');
   }
 }
+
+// Load once on page open
 load();
-setInterval(load,15000);
+
+// Manual refresh only (saves Railway logs/credits)
+document.getElementById('refresh-btn').addEventListener('click', ()=>{
+  const btn = document.getElementById('refresh-btn');
+  btn.textContent = 'refreshing…';
+  load().then(()=>{ btn.textContent = 'refresh'; });
+});
 </script>
 </body>
 </html>
