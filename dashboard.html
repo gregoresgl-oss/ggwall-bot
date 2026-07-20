@@ -30,13 +30,25 @@ body { min-height:100vh; }
 .wrap { max-width:920px; margin:0 auto; padding:32px 20px 48px; }
 
 /* Header */
-.top { display:flex; align-items:center; justify-content:space-between; margin-bottom:36px; animation:fadeUp .4s ease; }
+.top { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; animation:fadeUp .4s ease; }
 .brand { display:flex; align-items:center; gap:12px; }
 .brand .mark { width:32px; height:32px; border-radius:8px; background:var(--accent-soft); border:1px solid rgba(74,222,128,0.25); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; color:var(--accent); }
 .brand .txt h1 { font-size:15px; font-weight:600; letter-spacing:-0.2px; }
 .brand .txt p { font-size:12px; color:var(--dim); margin-top:1px; }
 .status { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--dim); font-family:'JetBrains Mono'; }
 .status .dot { width:7px; height:7px; border-radius:50%; background:var(--accent); animation:softPulse 2s infinite; }
+.status .dot.warn { background:var(--amber); }
+.status .dot.off { background:var(--red); animation:none; }
+
+/* Config banner */
+.cfg { background:rgba(96,165,250,0.06); border:1px solid rgba(96,165,250,0.2); border-radius:12px; padding:14px 16px; margin-bottom:16px; display:none; gap:10px; align-items:center; animation:fadeUp .4s ease; flex-wrap:wrap; }
+.cfg .lbl { font-size:12px; color:var(--text); flex:0 0 auto; }
+.cfg .lbl small { display:block; color:var(--dim); font-size:10px; margin-top:2px; font-family:'JetBrains Mono'; }
+.cfg input { flex:1 1 220px; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px 12px; color:var(--text); font-family:'JetBrains Mono'; font-size:12px; min-width:0; }
+.cfg input:focus { outline:none; border-color:var(--blue); }
+.cfg button { background:var(--blue); color:#0c0f14; border:none; border-radius:8px; padding:9px 16px; font-weight:600; font-size:12px; cursor:pointer; font-family:'Inter'; flex:0 0 auto; }
+.cfg button:hover { opacity:0.9; }
+.cfg .clear { background:transparent; color:var(--dim); border:1px solid var(--line); }
 
 /* Stat grid */
 .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:12px; }
@@ -99,6 +111,8 @@ body { min-height:100vh; }
 .empty .i { font-size:24px; margin-bottom:12px; opacity:0.4; }
 
 .foot { margin-top:24px; text-align:center; font-size:11px; color:var(--dimmer); font-family:'JetBrains Mono'; }
+.foot a { color:var(--accent); cursor:pointer; text-decoration:underline; }
+.foot .cfg-link { color:var(--dim); cursor:pointer; text-decoration:underline; }
 
 @media (max-width:720px) {
   .stats { grid-template-columns:repeat(2,1fr); }
@@ -117,7 +131,15 @@ body { min-height:100vh; }
         <p>Giveaway auto-claim</p>
       </div>
     </div>
-    <div class="status"><span class="dot"></span><span id="s-txt">online</span></div>
+    <div class="status"><span class="dot" id="s-dot"></span><span id="s-txt">online</span></div>
+  </div>
+
+  <!-- Config banner (shown when second bot URL not set) -->
+  <div class="cfg" id="cfg-banner">
+    <div class="lbl">Πρόσθεσε 2ο bot<small>URL του άλλου Railway project</small></div>
+    <input id="bot2-input" type="text" placeholder="https://bot2-xxx.up.railway.app" />
+    <button onclick="saveBot2()">Αποθήκευση</button>
+    <button class="clear" onclick="hideCfg()" id="cfg-cancel" style="display:none;">Άκυρο</button>
   </div>
 
   <div class="stats">
@@ -170,39 +192,122 @@ body { min-height:100vh; }
     <div class="feed" id="feed"></div>
   </div>
 
-  <div class="foot">GGWALL v3.0 · <span id="last-upd">—</span> · <span id="refresh-btn" style="color:var(--accent);cursor:pointer;text-decoration:underline;">refresh</span></div>
+  <div class="foot">GGWALL v3.0 · <span id="last-upd">—</span> · <a id="refresh-btn">refresh</a> · <span class="cfg-link" id="cfg-link">config</span></div>
 </div>
 
 <script>
-const API = window.location.origin;
-function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
-async function J(p){try{const r=await fetch(API+p);return await r.json();}catch(e){return null;}}
-function anim(el,target,dur=700){const start=parseInt(el.textContent)||0;const t0=performance.now();function s(t){const p=Math.min((t-t0)/dur,1);const e=1-Math.pow(1-p,3);el.textContent=Math.round(start+(target-start)*e);if(p<1)requestAnimationFrame(s);}requestAnimationFrame(s);}
+// ─── Bot endpoints ───
+const LOCAL = window.location.origin;
+let REMOTE = localStorage.getItem('ggwall_bot2_url') || '';
 
-// Parse token amounts from alert messages
-function parseTokens(alerts){
-  const totals = {};
-  (alerts||[]).forEach(a=>{
-    if(!a.autoClicked) return; // only count successful claims
-    const msg = (a.message||'') + ' ' + (a.keyword||'');
-    // Match patterns like "0.5 $ATOM", "2.17 $ATOM", "1,666.67 $ATOM1KLFG"
-    const re = /([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]+)/g;
-    let m;
-    while((m = re.exec(msg))!==null){
-      const amt = parseFloat(m[1].replace(/,/g,''));
-      const sym = m[2];
-      if(!isNaN(amt) && amt>0 && amt<10000000){
-        totals[sym] = (totals[sym]||0) + amt;
-      }
-    }
-  });
-  return totals;
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+async function J(base, path){
+  if(!base) return null;
+  try{
+    const r = await fetch(base + path);
+    if(!r.ok) return null;
+    return await r.json();
+  }catch(e){ return null; }
 }
 
+function anim(el,target,dur=700){
+  const start=parseInt(el.textContent)||0;
+  const t0=performance.now();
+  function s(t){
+    const p=Math.min((t-t0)/dur,1);
+    const e=1-Math.pow(1-p,3);
+    el.textContent=Math.round(start+(target-start)*e);
+    if(p<1)requestAnimationFrame(s);
+  }
+  requestAnimationFrame(s);
+}
+
+// ─── Combiners ───
+function combineStats(a, b){
+  const c = {
+    total_alerts: (a?.total_alerts||0) + (b?.total_alerts||0),
+    total_clicks: (a?.total_clicks||0) + (b?.total_clicks||0),
+    successful_clicks: (a?.successful_clicks||0) + (b?.successful_clicks||0),
+    failed_clicks: (a?.failed_clicks||0) + (b?.failed_clicks||0),
+    fastest_click: null,
+    tokens: {}
+  };
+  const f1 = a?.fastest_click, f2 = b?.fastest_click;
+  if(f1!=null && f2!=null) c.fastest_click = Math.min(f1, f2);
+  else c.fastest_click = f1 ?? f2 ?? null;
+
+  for(const src of [a?.tokens, b?.tokens]){
+    if(!src) continue;
+    for(const [k, v] of Object.entries(src)){
+      c.tokens[k] = (c.tokens[k]||0) + v;
+    }
+  }
+  return c;
+}
+
+function combineChannels(a, b){
+  const set = new Set();
+  (a?.channels||[]).forEach(c => set.add(c));
+  (b?.channels||[]).forEach(c => set.add(c));
+  return { channels: Array.from(set) };
+}
+
+function combineAlerts(a, b){
+  const merged = [...(a||[]), ...(b||[])];
+  merged.sort((x, y) => (y.id||0) - (x.id||0));
+  return merged;
+}
+
+// ─── Load & render ───
 async function load(){
-  const [stats,settings,alerts] = await Promise.all([J('/api/stats'),J('/api/settings'),J('/api/alerts')]);
-  if(!stats){document.getElementById('s-txt').textContent='offline';return;}
-  render(stats, settings, alerts);
+  const localPromise = Promise.all([
+    J(LOCAL, '/api/stats'),
+    J(LOCAL, '/api/settings'),
+    J(LOCAL, '/api/alerts')
+  ]);
+  const remotePromise = REMOTE ? Promise.all([
+    J(REMOTE, '/api/stats'),
+    J(REMOTE, '/api/settings'),
+    J(REMOTE, '/api/alerts')
+  ]) : Promise.resolve([null, null, null]);
+
+  const [[s1, set1, a1], [s2, set2, a2]] = await Promise.all([localPromise, remotePromise]);
+
+  // Status indicator
+  const localOk = s1 != null;
+  const remoteOk = s2 != null;
+  const dot = document.getElementById('s-dot');
+  const txt = document.getElementById('s-txt');
+
+  if(REMOTE){
+    if(localOk && remoteOk){
+      txt.textContent = '2 bots online';
+      dot.className = 'dot';
+    } else if(localOk || remoteOk){
+      txt.textContent = '1 of 2 online';
+      dot.className = 'dot warn';
+    } else {
+      txt.textContent = 'offline';
+      dot.className = 'dot off';
+      return;
+    }
+  } else {
+    if(localOk){
+      txt.textContent = 'online (1 bot)';
+      dot.className = 'dot';
+    } else {
+      txt.textContent = 'offline';
+      dot.className = 'dot off';
+      return;
+    }
+  }
+
+  const stats = combineStats(s1, s2);
+  const channels = combineChannels(set1, set2);
+  const alerts = combineAlerts(a1, a2);
+
+  render(stats, channels, alerts);
   document.getElementById('last-upd').textContent = 'updated ' + new Date().toLocaleTimeString('el-GR');
 }
 
@@ -251,15 +356,51 @@ function render(stats, settings, alerts){
   }
 }
 
-// Load once on page open
+// ─── Config UI ───
+function showCfg(){
+  document.getElementById('bot2-input').value = REMOTE || '';
+  document.getElementById('cfg-banner').style.display = 'flex';
+  document.getElementById('cfg-cancel').style.display = REMOTE ? 'inline-block' : 'none';
+}
+function hideCfg(){
+  document.getElementById('cfg-banner').style.display = 'none';
+}
+function saveBot2(){
+  const v = document.getElementById('bot2-input').value.trim().replace(/\/$/, '');
+  if(!v){
+    localStorage.removeItem('ggwall_bot2_url');
+    REMOTE = '';
+    hideCfg();
+    load();
+    return;
+  }
+  if(!v.startsWith('http')){
+    alert('Το URL πρέπει να ξεκινάει με https://');
+    return;
+  }
+  localStorage.setItem('ggwall_bot2_url', v);
+  REMOTE = v;
+  hideCfg();
+  load();
+}
+
+// Show config banner on first load if not set
+if(!REMOTE){
+  showCfg();
+}
+
+// Initial load
 load();
 
-// Manual refresh only (saves Railway logs/credits)
+// Manual refresh
 document.getElementById('refresh-btn').addEventListener('click', ()=>{
   const btn = document.getElementById('refresh-btn');
   btn.textContent = 'refreshing…';
   load().then(()=>{ btn.textContent = 'refresh'; });
 });
+
+// Config link in footer
+document.getElementById('cfg-link').addEventListener('click', showCfg);
 </script>
 </body>
 </html>
