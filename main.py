@@ -409,7 +409,13 @@ async def on_cb(event):
                 f"⚡ **Ταχύτερο:**  {fc_txt}\n"
                 f"🆕 **Νέα κανάλια:**  {len(stats.get('channels_detected', []))}"
             )
-            await event.edit(text, buttons=[[Button.inline("🔄 Reset", b"reset_stats")], [Button.inline("← Πίσω", b"back")]])
+            dash_url = os.getenv('RAILWAY_PUBLIC_DOMAIN', '')
+            buttons = []
+            if dash_url:
+                buttons.append([Button.url("📊 Άνοιξε Dashboard", f"https://{dash_url}")])
+            buttons.append([Button.inline("🔄 Reset", b"reset_stats")])
+            buttons.append([Button.inline("← Πίσω", b"back")])
+            await event.edit(text, buttons=buttons)
 
         elif data == "reset_stats":
             stats = DEFAULT_STATS.copy()
@@ -549,9 +555,19 @@ async def a_test_btn(r):
         return web.json_response({"ok": False, "error": str(e)}, headers=cors())
 async def a_health(r): return web.json_response({"status": "running", "owner": owner_id}, headers=cors())
 
+async def a_dashboard(r):
+    try:
+        dpath = Path("dashboard.html")
+        if dpath.exists():
+            return web.Response(text=dpath.read_text(encoding='utf-8'), content_type='text/html')
+        return web.Response(text="Dashboard not found", status=404)
+    except Exception as e:
+        return web.Response(text=str(e), status=500)
+
 async def start_api():
     app = web.Application()
-    app.router.add_get('/', a_health)
+    app.router.add_get('/', a_dashboard)
+    app.router.add_get('/health', a_health)
     app.router.add_get('/api/settings', a_settings)
     app.router.add_get('/api/stats', a_stats)
     app.router.add_get('/api/alerts', a_alerts)
@@ -559,7 +575,7 @@ async def start_api():
     app.router.add_get('/api/test_button', a_test_btn)
     runner = web.AppRunner(app); await runner.setup()
     await web.TCPSite(runner, '0.0.0.0', 8080).start()
-    logger.info("🌐 API: 8080")
+    logger.info("🌐 API: 8080 · Dashboard: /")
 
 # ============ MAIN ============
 async def main():
