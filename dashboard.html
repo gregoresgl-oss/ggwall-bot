@@ -4,219 +4,231 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GGWALL Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
 :root {
-  --bg: #0c0f14;
-  --surface: #14181f;
-  --line: rgba(255,255,255,0.06);
-  --text: #e8ecf2;
-  --dim: #7a828f;
-  --dimmer: #4a515c;
-  --accent: #4ade80;
-  --accent-soft: rgba(74,222,128,0.1);
-  --blue: #60a5fa;
-  --blue-soft: rgba(96,165,250,0.1);
-  --amber: #fbbf24;
-  --red: #f87171;
+  --ink: #111;
+  --card: #fff;
+  --page: #efeee8;
+  --accent: #ff4d1a;
+  --dim: #555;
+  --dimmer: #666;
+  --list: #ddd;
+  --ok: #0a8a2e;
+  --warn: #c2762b;
+  --off: #999;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
-html,body { background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased; }
-body { min-height:100vh; }
+body { background:var(--page); color:var(--ink); font-family:'Space Mono',monospace; -webkit-font-smoothing:antialiased; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { color:#c93e13; }
 
-@keyframes fadeUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
-@keyframes softPulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+@keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.3 } }
 
-.wrap { max-width:920px; margin:0 auto; padding:32px 20px 48px; }
+.card { max-width:1280px; margin:40px auto; background:var(--card); border:3px solid var(--ink); }
 
-.top { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; animation:fadeUp .4s ease; }
-.brand { display:flex; align-items:center; gap:12px; }
-.brand .mark { width:32px; height:32px; border-radius:8px; background:var(--accent-soft); border:1px solid rgba(74,222,128,0.25); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; color:var(--accent); }
-.brand .txt h1 { font-size:15px; font-weight:600; letter-spacing:-0.2px; }
-.brand .txt p { font-size:12px; color:var(--dim); margin-top:1px; }
-.status { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--dim); font-family:'JetBrains Mono'; }
-.status .dot { width:7px; height:7px; border-radius:50%; background:var(--accent); animation:softPulse 2s infinite; }
-.status .dot.warn { background:var(--amber); }
-.status .dot.off { background:var(--red); animation:none; }
+/* Header */
+.hdr { display:flex; justify-content:space-between; align-items:center; padding:26px 32px; border-bottom:3px solid var(--ink); gap:12px; flex-wrap:wrap; }
+.hdr .ttl { font-size:26px; font-weight:700; letter-spacing:-0.5px; text-transform:uppercase; }
+.pill { border:2px solid var(--ink); padding:7px 12px; display:flex; align-items:center; gap:8px; font-size:11.5px; font-weight:700; letter-spacing:0.5px; text-transform:uppercase; }
+.pill .dot { width:7px; height:7px; background:var(--accent); border-radius:50%; animation:pulse 2s infinite; }
+.pill .dot.warn { background:var(--warn); }
+.pill .dot.off { background:var(--off); animation:none; }
 
-.cfg { background:rgba(96,165,250,0.06); border:1px solid rgba(96,165,250,0.2); border-radius:12px; padding:14px 16px; margin-bottom:16px; display:none; flex-direction:column; gap:10px; animation:fadeUp .4s ease; }
-.cfg .row { display:flex; gap:10px; align-items:center; width:100%; flex-wrap:wrap; }
-.cfg .lbl { font-size:11px; color:var(--dim); flex:0 0 100%; font-family:'JetBrains Mono'; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:-4px; }
-.cfg input { flex:1 1 200px; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px 12px; color:var(--text); font-family:'JetBrains Mono'; font-size:12px; min-width:0; }
-.cfg input:focus { outline:none; border-color:var(--blue); }
-.cfg .actions { display:flex; gap:8px; margin-top:4px; }
-.cfg button { background:var(--blue); color:#0c0f14; border:none; border-radius:8px; padding:9px 16px; font-weight:600; font-size:12px; cursor:pointer; font-family:'Inter'; }
-.cfg button:hover { opacity:0.9; }
-.cfg .clear { background:transparent; color:var(--dim); border:1px solid var(--line); }
+/* Config panel */
+.cfg { padding:20px 32px; border-bottom:3px solid var(--ink); background:var(--page); display:none; }
+.cfg .lbl { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px; }
+.cfg .row { display:flex; gap:10px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
+.cfg input { flex:1 1 200px; background:var(--card); border:2px solid var(--ink); padding:9px 12px; color:var(--ink); font-family:'Space Mono',monospace; font-size:12px; min-width:0; }
+.cfg input:focus { outline:none; border-color:var(--accent); }
+.cfg .actions { display:flex; gap:10px; }
+.cfg button { background:var(--ink); color:var(--card); border:2px solid var(--ink); padding:9px 18px; font-family:'Space Mono',monospace; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; cursor:pointer; }
+.cfg button:hover { background:var(--accent); border-color:var(--accent); }
+.cfg button.sec { background:transparent; color:var(--ink); }
+.cfg button.sec:hover { background:var(--ink); color:var(--card); }
 
-.stats { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:12px; }
-.stat { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:18px; animation:fadeUp .4s ease backwards; }
-.stat .label { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:10px; }
-.stat .val { font-family:'JetBrains Mono'; font-size:30px; font-weight:600; letter-spacing:-1px; }
-.stat .val.green { color:var(--accent); }
-.stat .val.blue { color:var(--blue); }
-.stat .val.amber { color:var(--amber); }
-.stat .sub { font-size:11px; color:var(--dimmer); margin-top:6px; font-family:'JetBrains Mono'; }
+/* KPI row */
+.kpi { display:grid; grid-template-columns:repeat(4,1fr); border-bottom:3px solid var(--ink); }
+.kpi > div { padding:22px 26px; border-right:2px solid var(--ink); }
+.kpi > div:last-child { border-right:none; }
+.kpi .lbl { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1px; }
+.kpi .val { font-size:44px; font-weight:700; margin-top:4px; line-height:1; }
+.kpi .val.acc { color:var(--accent); }
+.kpi .sub { font-size:10.5px; margin-top:6px; }
 
-.row2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
+/* Bot comparison */
+.bots { display:grid; grid-template-columns:1fr 1fr; border-bottom:3px solid var(--ink); }
+.bot { padding:26px 30px; border-right:2px solid var(--ink); }
+.bot:last-child { border-right:none; }
+.bot .top { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:16px; gap:12px; }
+.bot .nm { font-size:19px; font-weight:700; text-transform:uppercase; }
+.bot .up { font-size:11px; font-weight:700; white-space:nowrap; }
+.bot .up.off { color:var(--off); }
+.bot .r { display:flex; justify-content:space-between; align-items:baseline; padding:6px 0; border-bottom:1px dashed var(--ink); gap:12px; }
+.bot .r:last-child { border-bottom:none; }
+.bot .r .k { font-size:12.5px; text-transform:uppercase; }
+.bot .r .v { font-size:15px; font-weight:700; white-space:nowrap; }
+.bot .r .v.acc { color:var(--accent); }
 
-.card { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:20px; animation:fadeUp .4s ease backwards; }
-.card h2 { font-size:12px; color:var(--dim); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:16px; font-weight:600; }
+/* Split section */
+.split { display:grid; grid-template-columns:1fr 1fr; border-bottom:3px solid var(--ink); }
+.split > div { padding:24px 30px; border-right:2px solid var(--ink); }
+.split > div:last-child { border-right:none; }
+.split h3 { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:1px; margin-bottom:14px; }
+.split .r { display:flex; justify-content:space-between; align-items:baseline; padding:7px 0; border-bottom:1px solid var(--list); gap:12px; }
+.split .r:last-child { border-bottom:none; }
+.split .r .n { font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.split .r .c { font-size:14px; font-weight:700; }
+.split .tok { padding:7px 0; border-bottom:1px solid var(--list); }
+.split .tok:last-child { border-bottom:none; }
+.split .tok .top { display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
+.split .tok .sym { font-size:13px; font-weight:700; }
+.split .tok .tot { font-size:16px; font-weight:700; color:var(--accent); }
+.split .tok .bd { font-size:10.5px; color:var(--dimmer); margin-top:2px; }
+.split .empty { font-size:12px; color:var(--dimmer); padding:8px 0; }
 
-.rate { display:flex; align-items:center; gap:20px; }
-.ring { position:relative; width:88px; height:88px; flex-shrink:0; }
-.ring svg { transform:rotate(-90deg); }
-.ring .bg { fill:none; stroke:rgba(255,255,255,0.05); stroke-width:7; }
-.ring .fg { fill:none; stroke:var(--accent); stroke-width:7; stroke-linecap:round; transition:stroke-dashoffset 1s cubic-bezier(.4,0,.2,1); }
-.ring .num { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-family:'JetBrains Mono'; font-weight:600; font-size:22px; }
-.rate-meta { font-size:13px; color:var(--dim); line-height:1.7; font-family:'JetBrains Mono'; }
-.rate-meta b { color:var(--text); }
-.rate-meta .bd { font-size:10px; margin-top:6px; }
+/* Activity log */
+.act-h { padding:20px 30px 4px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:1px; }
+.act-row-h { display:flex; padding:10px 30px; border-bottom:2px solid var(--ink); font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; gap:0; }
+.act-row-h span, .act-row span { display:block; }
+.act-row-h .c-time, .act-row .c-time { width:60px; flex:none; }
+.act-row-h .c-bot, .act-row .c-bot { width:90px; flex:none; }
+.act-row-h .c-alert, .act-row .c-alert { flex:1; min-width:0; }
+.act-row-h .c-status, .act-row .c-status { width:70px; flex:none; text-align:right; }
+.act-row-h .c-react, .act-row .c-react { width:80px; flex:none; text-align:right; }
+.act-row { display:flex; padding:9px 30px; border-bottom:1px solid var(--list); font-size:12.5px; align-items:baseline; gap:0; }
+.act-row:last-child { border-bottom:none; }
+.act-row .c-time { color:var(--dim); }
+.act-row .c-bot { font-weight:700; }
+.act-row .c-alert { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-right:12px; }
+.act-row .c-status { font-weight:700; }
+.act-row .c-status.ok { color:var(--ok); }
+.act-row .c-status.det { color:var(--warn); }
+.act-row .c-react { color:var(--dim); }
+.act-empty { padding:40px 30px; text-align:center; font-size:12px; color:var(--dimmer); }
 
-.speed .big { font-family:'JetBrains Mono'; font-size:38px; font-weight:600; color:var(--blue); }
-.speed .big span { font-size:16px; color:var(--dim); }
-.speed .track { height:4px; background:rgba(255,255,255,0.05); border-radius:2px; margin-top:16px; overflow:hidden; }
-.speed .track .fill { height:100%; background:linear-gradient(90deg,var(--accent),var(--blue)); border-radius:2px; width:0; transition:width 1s ease; }
-.speed .note { font-size:11px; color:var(--dimmer); margin-top:10px; font-family:'JetBrains Mono'; }
+/* Footer */
+.foot { padding:16px 30px; border-top:2px solid var(--ink); font-size:10.5px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; color:var(--dim); text-transform:uppercase; letter-spacing:0.5px; }
+.foot .lnk { color:var(--ink); cursor:pointer; text-decoration:underline; font-weight:700; }
+.foot .lnk:hover { color:var(--accent); }
 
-.tokens { display:flex; flex-direction:column; gap:2px; }
-.token-row { padding:10px 0; border-bottom:1px solid var(--line); font-family:'JetBrains Mono'; }
-.token-row:last-child { border:none; }
-.token-row .main { display:flex; align-items:center; justify-content:space-between; }
-.token-row .name { font-size:13px; color:var(--text); }
-.token-row .amt { font-size:15px; font-weight:600; color:var(--accent); }
-.token-row .bd-inline { font-size:10px; margin-top:4px; color:var(--dimmer); }
-.token-row .bd-inline .b1 { color:var(--accent); }
-.token-row .bd-inline .b2 { color:var(--blue); }
-.token-empty { font-size:12px; color:var(--dimmer); font-family:'JetBrains Mono'; padding:8px 0; }
-
-.chans { display:flex; flex-wrap:wrap; gap:8px; }
-.chip { display:inline-flex; align-items:center; gap:7px; background:rgba(255,255,255,0.03); border:1px solid var(--line); border-radius:8px; padding:7px 12px; font-size:12px; font-family:'JetBrains Mono'; color:var(--text); }
-.chip .d { width:5px; height:5px; border-radius:50%; background:var(--accent); }
-
-.feed-card { margin-top:12px; }
-.feed { display:flex; flex-direction:column; }
-.fr { display:grid; grid-template-columns:56px auto 1fr auto; gap:12px; align-items:center; padding:12px 0; border-bottom:1px solid var(--line); font-size:13px; animation:fadeUp .3s ease backwards; }
-.fr:last-child { border:none; }
-.fr .t { color:var(--dimmer); font-family:'JetBrains Mono'; font-size:12px; }
-.fr .tag { font-size:10px; font-family:'JetBrains Mono'; padding:2px 7px; border-radius:4px; font-weight:600; letter-spacing:0.3px; }
-.fr .tag.b1 { color:var(--accent); background:var(--accent-soft); }
-.fr .tag.b2 { color:var(--blue); background:var(--blue-soft); }
-.fr .tag.hidden { visibility:hidden; }
-.fr .c { color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.fr .r { font-family:'JetBrains Mono'; font-size:12px; text-align:right; white-space:nowrap; }
-.fr .r.ok { color:var(--accent); }
-.fr .r.det { color:var(--dim); }
-.empty { text-align:center; padding:48px 20px; color:var(--dimmer); font-size:13px; }
-.empty .i { font-size:24px; margin-bottom:12px; opacity:0.4; }
-
-.foot { margin-top:24px; text-align:center; font-size:11px; color:var(--dimmer); font-family:'JetBrains Mono'; }
-.foot a { color:var(--accent); cursor:pointer; text-decoration:underline; }
-.foot .cfg-link { color:var(--dim); cursor:pointer; text-decoration:underline; }
-
-@media (max-width:720px) {
-  .stats { grid-template-columns:repeat(2,1fr); }
-  .row2 { grid-template-columns:1fr; }
+/* Mobile */
+@media (max-width:900px) {
+  .card { margin:0; border-left:none; border-right:none; }
+  .hdr { padding:20px 20px; }
+  .hdr .ttl { font-size:20px; }
+  .kpi { grid-template-columns:repeat(2,1fr); }
+  .kpi > div { padding:16px 18px; }
+  .kpi .val { font-size:34px; }
+  .kpi > div:nth-child(1), .kpi > div:nth-child(3) { border-right:2px solid var(--ink); }
+  .kpi > div:nth-child(2), .kpi > div:nth-child(4) { border-right:none; }
+  .kpi > div:nth-child(1), .kpi > div:nth-child(2) { border-bottom:2px solid var(--ink); }
+  .bots { grid-template-columns:1fr; }
+  .bot { border-right:none; border-bottom:2px solid var(--ink); padding:20px 18px; }
+  .bot:last-child { border-bottom:none; }
+  .split { grid-template-columns:1fr; }
+  .split > div { border-right:none; border-bottom:2px solid var(--ink); padding:20px 18px; }
+  .split > div:last-child { border-bottom:none; }
+  .act-row-h, .act-row { padding-left:18px; padding-right:18px; }
+  .act-row-h .c-bot, .act-row .c-bot { width:60px; }
+  .act-row-h .c-status, .act-row .c-status { width:40px; }
+  .act-row-h .c-react, .act-row .c-react { width:60px; font-size:11px; }
+  .act-row .c-alert { font-size:11.5px; }
+  .cfg { padding:16px 18px; }
 }
 </style>
 </head>
 <body>
-<div class="wrap">
 
-  <div class="top">
-    <div class="brand">
-      <div class="mark">GG</div>
-      <div class="txt">
-        <h1>GGWALL Monitor</h1>
-        <p>Giveaway auto-claim</p>
-      </div>
+<div class="card">
+
+  <!-- Header -->
+  <div class="hdr">
+    <div class="ttl">GGWALL Monitor</div>
+    <div class="pill">
+      <span class="dot" id="s-dot"></span>
+      <span id="s-txt">Loading…</span>
     </div>
-    <div class="status"><span class="dot" id="s-dot"></span><span id="s-txt">online</span></div>
   </div>
 
-  <div class="cfg" id="cfg-banner">
-    <div class="lbl">Bot 1 (τοπικό) — όνομα</div>
-    <div class="row"><input id="bot1-name-input" type="text" placeholder="GGWALL" /></div>
-    <div class="lbl">Bot 2 (απομακρυσμένο) — όνομα &amp; URL</div>
+  <!-- Config panel -->
+  <div class="cfg" id="cfg-panel">
+    <div class="lbl">Bot 1 name</div>
     <div class="row">
-      <input id="bot2-name-input" type="text" placeholder="GGWALL2" style="flex:0 1 140px;" />
-      <input id="bot2-input" type="text" placeholder="https://bot2-xxx.up.railway.app" />
+      <input id="cfg-n1" type="text" placeholder="GGWALL" />
+    </div>
+    <div class="lbl">Bot 2 name &amp; URL</div>
+    <div class="row">
+      <input id="cfg-n2" type="text" placeholder="GGWALL2" style="flex:0 1 160px;" />
+      <input id="cfg-u2" type="text" placeholder="https://bot2-xxx.up.railway.app" />
     </div>
     <div class="actions">
-      <button onclick="saveConfig()">Αποθήκευση</button>
-      <button class="clear" onclick="hideCfg()" id="cfg-cancel" style="display:none;">Άκυρο</button>
+      <button onclick="saveConfig()">Save</button>
+      <button class="sec" onclick="hideCfg()" id="cfg-cancel" style="display:none;">Cancel</button>
     </div>
   </div>
 
-  <div class="stats">
-    <div class="stat" style="animation-delay:0ms">
-      <div class="label">Signals</div>
-      <div class="val" id="m-alerts">0</div>
-      <div class="sub" id="sub-alerts">detected</div>
+  <!-- KPI row -->
+  <div class="kpi">
+    <div>
+      <div class="lbl">Signals</div>
+      <div class="val" id="k-sig">0</div>
+      <div class="sub" id="k-sig-sub">—</div>
     </div>
-    <div class="stat" style="animation-delay:40ms">
-      <div class="label">Claims</div>
-      <div class="val green" id="m-success">0</div>
-      <div class="sub" id="sub-success">successful</div>
+    <div>
+      <div class="lbl">Claims</div>
+      <div class="val acc" id="k-cla">0</div>
+      <div class="sub" id="k-cla-sub">—</div>
     </div>
-    <div class="stat" style="animation-delay:80ms">
-      <div class="label">Clicks</div>
-      <div class="val blue" id="m-clicks">0</div>
-      <div class="sub" id="sub-clicks">fired</div>
+    <div>
+      <div class="lbl">Clicks</div>
+      <div class="val" id="k-cli">0</div>
+      <div class="sub" id="k-cli-sub">—</div>
     </div>
-    <div class="stat" style="animation-delay:120ms">
-      <div class="label">Missed</div>
-      <div class="val amber" id="m-fail">0</div>
-      <div class="sub" id="sub-fail">failed</div>
-    </div>
-  </div>
-
-  <div class="row2">
-    <div class="card" style="animation-delay:160ms">
-      <h2>Hit rate</h2>
-      <div class="rate">
-        <div class="ring">
-          <svg width="88" height="88" viewBox="0 0 88 88">
-            <circle class="bg" cx="44" cy="44" r="38"/>
-            <circle class="fg" id="ring" cx="44" cy="44" r="38" stroke-dasharray="239" stroke-dashoffset="239"/>
-          </svg>
-          <div class="num" id="r-pct">0%</div>
-        </div>
-        <div class="rate-meta">
-          <div>success <b id="r-succ">0</b></div>
-          <div>attempts <b id="r-tot">0</b></div>
-          <div class="bd" id="bd-rate"></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card speed" style="animation-delay:200ms">
-      <h2>Fastest reaction</h2>
-      <div class="big"><span id="m-fastest">—</span><span>s</span></div>
-      <div class="track"><div class="fill" id="speed-fill"></div></div>
-      <div class="note" id="fast-note">click latency after giveaway detected</div>
+    <div>
+      <div class="lbl">Missed</div>
+      <div class="val" id="k-mis">0</div>
+      <div class="sub" id="k-mis-sub">—</div>
     </div>
   </div>
 
-  <div class="row2">
-    <div class="card" style="animation-delay:240ms">
-      <h2>Tokens claimed</h2>
-      <div class="tokens" id="tokens"></div>
-    </div>
+  <!-- Bot comparison -->
+  <div class="bots" id="bots-grid"></div>
 
-    <div class="card" style="animation-delay:280ms">
-      <h2>Watching</h2>
-      <div class="chans" id="chans"></div>
+  <!-- Alert breakdown + Tokens -->
+  <div class="split">
+    <div>
+      <h3>Alert breakdown</h3>
+      <div id="alert-list"></div>
+    </div>
+    <div>
+      <h3>Tokens claimed (combined)</h3>
+      <div id="token-list"></div>
     </div>
   </div>
 
-  <div class="card feed-card" style="animation-delay:320ms">
-    <h2>Recent activity</h2>
-    <div class="feed" id="feed"></div>
+  <!-- Activity log -->
+  <div class="act-h">Activity log</div>
+  <div class="act-row-h">
+    <span class="c-time">Time</span>
+    <span class="c-bot">Bot</span>
+    <span class="c-alert">Alert</span>
+    <span class="c-status">Status</span>
+    <span class="c-react">Reaction</span>
+  </div>
+  <div id="act-list"></div>
+
+  <!-- Footer -->
+  <div class="foot">
+    <span id="last-upd">—</span>
+    <span>
+      <span class="lnk" id="refresh-btn">refresh</span>
+      &nbsp;·&nbsp;
+      <span class="lnk" id="cfg-link">config</span>
+    </span>
   </div>
 
-  <div class="foot">GGWALL v3.0 · <span id="last-upd">—</span> · <a id="refresh-btn">refresh</a> · <span class="cfg-link" id="cfg-link">config</span></div>
 </div>
 
 <script>
@@ -226,6 +238,11 @@ let BOT1_NAME = localStorage.getItem('ggwall_bot1_name') || 'GGWALL';
 let BOT2_NAME = localStorage.getItem('ggwall_bot2_name') || 'GGWALL2';
 
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function fmt(n){
+  if(n==null) return '—';
+  if(n>=1000) return n.toLocaleString('en-US',{maximumFractionDigits:0});
+  return n%1===0 ? String(n) : n.toFixed(2);
+}
 
 async function J(base, path){
   if(!base) return null;
@@ -234,66 +251,6 @@ async function J(base, path){
     if(!r.ok) return null;
     return await r.json();
   }catch(e){ return null; }
-}
-
-function anim(el,target,dur=700){
-  const start=parseInt(el.textContent)||0;
-  const t0=performance.now();
-  function s(t){
-    const p=Math.min((t-t0)/dur,1);
-    const e=1-Math.pow(1-p,3);
-    el.textContent=Math.round(start+(target-start)*e);
-    if(p<1)requestAnimationFrame(s);
-  }
-  requestAnimationFrame(s);
-}
-
-function fmt(n){
-  if(n>=1000) return n.toLocaleString('en-US',{maximumFractionDigits:0});
-  return n%1===0 ? String(n) : n.toFixed(2);
-}
-
-// ─── Combiners ───
-function combineStats(a, b){
-  const c = {
-    total_alerts: (a?.total_alerts||0) + (b?.total_alerts||0),
-    total_clicks: (a?.total_clicks||0) + (b?.total_clicks||0),
-    successful_clicks: (a?.successful_clicks||0) + (b?.successful_clicks||0),
-    failed_clicks: (a?.failed_clicks||0) + (b?.failed_clicks||0),
-    fastest_click: null,
-    tokens: {}
-  };
-  const f1 = a?.fastest_click, f2 = b?.fastest_click;
-  if(f1!=null && f2!=null) c.fastest_click = Math.min(f1, f2);
-  else c.fastest_click = f1 ?? f2 ?? null;
-  for(const src of [a?.tokens, b?.tokens]){
-    if(!src) continue;
-    for(const [k, v] of Object.entries(src)){
-      c.tokens[k] = (c.tokens[k]||0) + v;
-    }
-  }
-  return c;
-}
-
-function combineChannels(a, b){
-  const set = new Set();
-  (a?.channels||[]).forEach(c => set.add(c));
-  (b?.channels||[]).forEach(c => set.add(c));
-  return { channels: Array.from(set) };
-}
-
-function combineAlerts(a, b){
-  const tagged = [
-    ...(a||[]).map(x => ({...x, _bot: 1})),
-    ...(b||[]).map(x => ({...x, _bot: 2}))
-  ];
-  tagged.sort((x, y) => (y.id||0) - (x.id||0));
-  return tagged;
-}
-
-// ─── Breakdown helper ───
-function bdSpan(v1, v2){
-  return `<span style="color:var(--accent)">${esc(BOT1_NAME)}</span> ${v1} <span style="color:var(--dimmer)">·</span> <span style="color:var(--blue)">${esc(BOT2_NAME)}</span> ${v2}`;
 }
 
 async function load(){
@@ -324,125 +281,164 @@ async function load(){
     else { txt.textContent='offline'; dot.className='dot off'; return; }
   }
 
-  const stats = combineStats(s1, s2);
-  const channels = combineChannels(set1, set2);
-  const alerts = combineAlerts(a1, a2);
-  const dual = !!REMOTE;
-
-  render(stats, channels, alerts, s1, s2, dual);
+  render(s1, s2, a1, a2);
   document.getElementById('last-upd').textContent = 'updated ' + new Date().toLocaleTimeString('el-GR');
 }
 
-function render(stats, settings, alerts, s1, s2, dual){
-  anim(document.getElementById('m-alerts'), stats.total_alerts||0);
-  anim(document.getElementById('m-success'), stats.successful_clicks||0);
-  anim(document.getElementById('m-clicks'), stats.total_clicks||0);
-  anim(document.getElementById('m-fail'), stats.failed_clicks||0);
+function render(s1, s2, a1, a2){
+  const dual = !!REMOTE;
 
-  // Per-bot breakdowns κάτω από κάθε stat
-  const subs = [
-    ['sub-alerts', s1?.total_alerts||0, s2?.total_alerts||0, 'detected'],
-    ['sub-success', s1?.successful_clicks||0, s2?.successful_clicks||0, 'successful'],
-    ['sub-clicks', s1?.total_clicks||0, s2?.total_clicks||0, 'fired'],
-    ['sub-fail', s1?.failed_clicks||0, s2?.failed_clicks||0, 'failed'],
+  // KPI row
+  const kSig = (s1?.total_alerts||0) + (s2?.total_alerts||0);
+  const kCla = (s1?.successful_clicks||0) + (s2?.successful_clicks||0);
+  const kCli = (s1?.total_clicks||0) + (s2?.total_clicks||0);
+  const kMis = (s1?.failed_clicks||0) + (s2?.failed_clicks||0);
+  document.getElementById('k-sig').textContent = kSig;
+  document.getElementById('k-cla').textContent = kCla;
+  document.getElementById('k-cli').textContent = kCli;
+  document.getElementById('k-mis').textContent = kMis;
+
+  const subOf = (v1,v2) => dual
+    ? `${esc(BOT1_NAME)} ${v1} / ${esc(BOT2_NAME)} ${v2}`
+    : `${esc(BOT1_NAME)} ${v1}`;
+  document.getElementById('k-sig-sub').innerHTML = subOf(s1?.total_alerts||0, s2?.total_alerts||0);
+  document.getElementById('k-cla-sub').innerHTML = subOf(s1?.successful_clicks||0, s2?.successful_clicks||0);
+  document.getElementById('k-cli-sub').innerHTML = subOf(s1?.total_clicks||0, s2?.total_clicks||0);
+  document.getElementById('k-mis-sub').innerHTML = subOf(s1?.failed_clicks||0, s2?.failed_clicks||0);
+
+  // Bot comparison
+  const bots = [{ name: BOT1_NAME, stats: s1, online: s1!=null }];
+  if(dual) bots.push({ name: BOT2_NAME, stats: s2, online: s2!=null });
+
+  const grid = document.getElementById('bots-grid');
+  if(!dual){
+    grid.style.gridTemplateColumns = '1fr';
+  } else {
+    grid.style.gridTemplateColumns = '1fr 1fr';
+  }
+  grid.innerHTML = bots.map((b,i) => {
+    const st = b.stats || {};
+    const tot = st.total_clicks || 0;
+    const succ = st.successful_clicks || 0;
+    const hitRate = tot > 0 ? Math.round(succ / tot * 100) : 0;
+    const fast = st.fastest_click;
+    const fastTxt = fast != null ? fast.toFixed(2) + 's' : '—';
+    const tokens = st.tokens || {};
+    const tokKeys = Object.keys(tokens).sort((a,b) => tokens[b] - tokens[a]);
+    const tokRows = tokKeys.map(k =>
+      `<div class="r"><span class="k">$${esc(k)} claimed</span><span class="v">${fmt(tokens[k])}</span></div>`
+    ).join('');
+    const upTxt = b.online ? '[ ONLINE ]' : '[ OFFLINE ]';
+    const upCls = b.online ? '' : 'off';
+    return `
+      <div class="bot">
+        <div class="top">
+          <span class="nm">${esc(b.name)}</span>
+          <span class="up ${upCls}">${upTxt}</span>
+        </div>
+        <div class="r"><span class="k">Signals</span><span class="v">${st.total_alerts||0}</span></div>
+        <div class="r"><span class="k">Claims</span><span class="v">${succ}</span></div>
+        <div class="r"><span class="k">Clicks</span><span class="v">${tot}</span></div>
+        <div class="r"><span class="k">Missed</span><span class="v">${st.failed_clicks||0}</span></div>
+        <div class="r"><span class="k">Hit rate</span><span class="v">${hitRate}%</span></div>
+        <div class="r"><span class="k">Fastest reaction</span><span class="v acc">${fastTxt}</span></div>
+        ${tokRows}
+      </div>
+    `;
+  }).join('');
+
+  // Alert breakdown — group by channel
+  const allAlerts = [
+    ...(a1||[]).map(x => ({...x, _bot: BOT1_NAME})),
+    ...(a2||[]).map(x => ({...x, _bot: BOT2_NAME}))
   ];
-  for(const [id, v1, v2, label] of subs){
-    const el = document.getElementById(id);
-    if(dual) el.innerHTML = bdSpan(v1, v2);
-    else el.textContent = label;
+  const byChan = {};
+  allAlerts.forEach(a => {
+    const key = a.channel || 'other';
+    byChan[key] = (byChan[key]||0) + 1;
+  });
+  const chanKeys = Object.keys(byChan).sort((a,b) => byChan[b] - byChan[a]);
+  const alertEl = document.getElementById('alert-list');
+  if(chanKeys.length === 0){
+    alertEl.innerHTML = '<div class="empty">no alerts yet</div>';
+  } else {
+    alertEl.innerHTML = chanKeys.slice(0,8).map(k =>
+      `<div class="r"><span class="n">${esc(k)}</span><span class="c">${byChan[k]}</span></div>`
+    ).join('');
   }
 
-  // Hit rate
-  const tot=stats.total_clicks||0, succ=stats.successful_clicks||0;
-  const wr=tot>0?Math.round(succ/tot*100):0;
-  document.getElementById('r-pct').textContent=wr+'%';
-  document.getElementById('r-succ').textContent=succ;
-  document.getElementById('r-tot').textContent=tot;
-  document.getElementById('ring').style.strokeDashoffset=(2*Math.PI*38)*(1-wr/100);
-
-  const brEl = document.getElementById('bd-rate');
-  if(dual){
-    const t1=s1?.total_clicks||0, u1=s1?.successful_clicks||0;
-    const t2=s2?.total_clicks||0, u2=s2?.successful_clicks||0;
-    const w1 = t1>0 ? Math.round(u1/t1*100) : 0;
-    const w2 = t2>0 ? Math.round(u2/t2*100) : 0;
-    brEl.innerHTML = bdSpan(w1+'%', w2+'%');
-  } else {
-    brEl.innerHTML = '';
+  // Tokens claimed (combined)
+  const combTokens = {};
+  const perBotTokens = { b1: (s1?.tokens || {}), b2: (s2?.tokens || {}) };
+  for(const src of [perBotTokens.b1, perBotTokens.b2]){
+    for(const [k,v] of Object.entries(src)){
+      combTokens[k] = (combTokens[k]||0) + v;
+    }
   }
-
-  // Fastest reaction
-  const fast=stats.fastest_click;
-  document.getElementById('m-fastest').textContent=fast!=null?fast.toFixed(2):'—';
-  if(fast!=null) document.getElementById('speed-fill').style.width=Math.max(5,Math.min(100,(20-fast)/20*100))+'%';
-
-  const fastNote = document.getElementById('fast-note');
-  if(dual){
-    const f1 = s1?.fastest_click, f2 = s2?.fastest_click;
-    const t1 = f1!=null ? f1.toFixed(2)+'s' : '—';
-    const t2 = f2!=null ? f2.toFixed(2)+'s' : '—';
-    fastNote.innerHTML = bdSpan(t1, t2);
+  const tokKeys = Object.keys(combTokens).sort((a,b) => combTokens[b] - combTokens[a]);
+  const tokEl = document.getElementById('token-list');
+  if(tokKeys.length === 0){
+    tokEl.innerHTML = '<div class="empty">no claims recorded yet</div>';
   } else {
-    fastNote.textContent = 'click latency after giveaway detected';
-  }
-
-  // Tokens
-  const tk = stats.tokens || {};
-  const tel = document.getElementById('tokens');
-  const keys = Object.keys(tk).sort((a,b)=>tk[b]-tk[a]);
-  if(keys.length===0){
-    tel.innerHTML='<div class="token-empty">no claims recorded yet</div>';
-  } else {
-    tel.innerHTML=keys.slice(0,6).map(k=>{
-      const v=tk[k];
-      const disp=fmt(v);
-      let bd = '';
-      if(dual){
-        const v1 = s1?.tokens?.[k] || 0;
-        const v2 = s2?.tokens?.[k] || 0;
-        bd = `<div class="bd-inline"><span class="b1">${esc(BOT1_NAME)}</span> ${fmt(v1)} · <span class="b2">${esc(BOT2_NAME)}</span> ${fmt(v2)}</div>`;
-      }
-      return `<div class="token-row"><div class="main"><span class="name">$${esc(k)}</span><span class="amt">${disp}</span></div>${bd}</div>`;
+    tokEl.innerHTML = tokKeys.map(k => {
+      const total = combTokens[k];
+      const v1 = perBotTokens.b1[k] || 0;
+      const v2 = perBotTokens.b2[k] || 0;
+      const bd = dual
+        ? `${esc(BOT1_NAME)} ${fmt(v1)} · ${esc(BOT2_NAME)} ${fmt(v2)}`
+        : `${esc(BOT1_NAME)} ${fmt(v1)}`;
+      return `
+        <div class="tok">
+          <div class="top">
+            <span class="sym">$${esc(k)}</span>
+            <span class="tot">${fmt(total)}</span>
+          </div>
+          <div class="bd">${bd}</div>
+        </div>
+      `;
     }).join('');
   }
 
-  // Channels
-  const cel=document.getElementById('chans');
-  cel.innerHTML=(settings?.channels||[]).map(c=>`<span class="chip"><span class="d"></span>${esc(c)}</span>`).join('')||'<div class="token-empty">none</div>';
-
-  // Recent activity με bot tag
-  const fel=document.getElementById('feed');
-  if(!alerts||alerts.length===0){
-    fel.innerHTML='<div class="empty"><div class="i">○</div>Waiting for the next giveaway…</div>';
+  // Activity log
+  allAlerts.sort((x,y) => (y.id||0) - (x.id||0));
+  const actEl = document.getElementById('act-list');
+  if(allAlerts.length === 0){
+    actEl.innerHTML = '<div class="act-empty">Waiting for the next giveaway…</div>';
   } else {
-    fel.innerHTML=alerts.slice(0,15).map((a,i)=>{
-      const ok=a.autoClicked;
-      const r=ok?`✓ ${a.clickTime||''}`:'detected';
-      const tagClass = a._bot===2 ? 'b2' : 'b1';
-      const tagName = a._bot===2 ? BOT2_NAME : BOT1_NAME;
-      const tag = dual
-        ? `<span class="tag ${tagClass}">${esc(tagName)}</span>`
-        : `<span class="tag hidden"></span>`;
-      return `<div class="fr" style="animation-delay:${i*30}ms"><span class="t">${esc(a.time||'')}</span>${tag}<span class="c">${esc(a.channel||'—')}</span><span class="r ${ok?'ok':'det'}">${esc(r)}</span></div>`;
+    actEl.innerHTML = allAlerts.slice(0,20).map(a => {
+      const ok = a.autoClicked;
+      const icon = ok ? '✓' : '○';
+      const cls = ok ? 'ok' : 'det';
+      const react = ok ? (a.clickTime || '') : 'detected';
+      const botName = dual ? esc(a._bot) : '';
+      return `
+        <div class="act-row">
+          <span class="c-time">${esc(a.time||'')}</span>
+          <span class="c-bot">${botName}</span>
+          <span class="c-alert">${esc(a.channel || '—')}</span>
+          <span class="c-status ${cls}">${icon}</span>
+          <span class="c-react">${esc(react)}</span>
+        </div>
+      `;
     }).join('');
   }
 }
 
-// ─── Config UI ───
+// Config UI
 function showCfg(){
-  document.getElementById('bot1-name-input').value = BOT1_NAME;
-  document.getElementById('bot2-name-input').value = BOT2_NAME;
-  document.getElementById('bot2-input').value = REMOTE || '';
-  document.getElementById('cfg-banner').style.display = 'flex';
+  document.getElementById('cfg-n1').value = BOT1_NAME;
+  document.getElementById('cfg-n2').value = BOT2_NAME;
+  document.getElementById('cfg-u2').value = REMOTE || '';
+  document.getElementById('cfg-panel').style.display = 'block';
   document.getElementById('cfg-cancel').style.display = REMOTE ? 'inline-block' : 'none';
 }
 function hideCfg(){
-  document.getElementById('cfg-banner').style.display = 'none';
+  document.getElementById('cfg-panel').style.display = 'none';
 }
 function saveConfig(){
-  const n1 = document.getElementById('bot1-name-input').value.trim() || 'GGWALL';
-  const n2 = document.getElementById('bot2-name-input').value.trim() || 'GGWALL2';
-  const url = document.getElementById('bot2-input').value.trim().replace(/\/$/, '');
+  const n1 = document.getElementById('cfg-n1').value.trim() || 'GGWALL';
+  const n2 = document.getElementById('cfg-n2').value.trim() || 'GGWALL2';
+  const url = document.getElementById('cfg-u2').value.trim().replace(/\/$/, '');
 
   BOT1_NAME = n1;
   BOT2_NAME = n2;
@@ -453,7 +449,7 @@ function saveConfig(){
     localStorage.removeItem('ggwall_bot2_url');
     REMOTE = '';
   } else if(!url.startsWith('http')){
-    alert('Το URL πρέπει να ξεκινάει με https://');
+    alert('URL must start with https://');
     return;
   } else {
     localStorage.setItem('ggwall_bot2_url', url);
