@@ -581,25 +581,38 @@ async function purgeChannel(){
   msg.textContent = 'Purging…';
 
   const results = [];
+  let anyError = false;
   try {
     const r1 = await fetch(`${LOCAL}/api/alerts/purge?channel=${encodeURIComponent(channel)}`);
     const d1 = await r1.json();
-    results.push(`${BOT1_NAME}: ${d1.removed || 0} removed`);
+    if(d1.ok === false){
+      results.push(`${BOT1_NAME}: error (${d1.error||'unknown'})`);
+      anyError = true;
+    } else {
+      results.push(`${BOT1_NAME}: ${d1.removed || 0} removed`);
+    }
   } catch(e) {
-    results.push(`${BOT1_NAME}: error`);
+    results.push(`${BOT1_NAME}: fetch failed`);
+    anyError = true;
   }
   if(REMOTE){
     try {
       const r2 = await fetch(`${REMOTE}/api/alerts/purge?channel=${encodeURIComponent(channel)}`);
       const d2 = await r2.json();
-      results.push(`${BOT2_NAME}: ${d2.removed || 0} removed`);
+      if(d2.ok === false){
+        results.push(`${BOT2_NAME}: error (${d2.error||'unknown'})`);
+        anyError = true;
+      } else {
+        results.push(`${BOT2_NAME}: ${d2.removed || 0} removed`);
+      }
     } catch(e) {
-      results.push(`${BOT2_NAME}: error`);
+      results.push(`${BOT2_NAME}: fetch failed`);
+      anyError = true;
     }
   }
 
-  msg.style.color = 'var(--ok)';
-  msg.textContent = '✓ ' + results.join(' · ');
+  msg.style.color = anyError ? 'var(--accent)' : 'var(--ok)';
+  msg.textContent = (anyError ? '⚠ ' : '✓ ') + results.join(' · ');
   sel.value = '';
   setTimeout(() => load(), 500);
 }

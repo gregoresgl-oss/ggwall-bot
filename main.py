@@ -157,6 +157,14 @@ def save_alert(a):
     except Exception as e:
         logger.error(f"Alert save: {e}")
 
+def save_alerts(alerts_list):
+    """Αντικατάσταση όλης της λίστας alerts (χρησιμοποιείται από purge)."""
+    try:
+        with open(ALERTS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(alerts_list[:100], f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"Alerts save: {e}")
+
 # ============ FETCH CHANNELS ============
 async def fetch_my_channels():
     global my_channels
