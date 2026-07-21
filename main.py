@@ -866,6 +866,41 @@ async def a_stats(r): return web.json_response(stats, headers=cors())
 async def a_alerts(r): return web.json_response(load_alerts(), headers=cors())
 async def a_health(r): return web.json_response({"status": "running", "owner": owner_id}, headers=cors())
 
+async def a_purge_alerts(r):
+    """Διαγράφει όλα τα alerts από συγκεκριμένο κανάλι και προσαρμόζει τα stats."""
+    global stats
+    try:
+        channel = (r.query.get('channel', '') or '').strip()
+        if not channel:
+            return web.json_response({"ok": False, "error": "no channel"}, headers=cors())
+
+        alerts = load_alerts()
+        matching = [a for a in alerts if (a.get('channel', '') or '').lower() == channel.lower()]
+        remaining = [a for a in alerts if (a.get('channel', '') or '').lower() != channel.lower()]
+        removed = len(matching)
+
+        if removed == 0:
+            return web.json_response({"ok": True, "removed": 0}, headers=cors())
+
+        # Προσαρμογή stats — best effort
+        successful_removed = sum(1 for a in matching if a.get('autoClicked'))
+        stats['total_alerts'] = max(0, stats.get('total_alerts', 0) - removed)
+        stats['successful_clicks'] = max(0, stats.get('successful_clicks', 0) - successful_removed)
+        stats['total_clicks'] = max(0, stats.get('total_clicks', 0) - successful_removed)
+
+        # Αφαίρεση από channels_detected (μη τα ξαναπροτείνει)
+        if channel in stats.get('channels_detected', []):
+            stats['channels_detected'].remove(channel)
+
+        save_alerts(remaining)
+        save_stats(stats)
+
+        logger.info(f"🗑️  Purged {removed} alerts from channel '{channel}' (successful: {successful_removed})")
+        return web.json_response({"ok": True, "removed": removed, "successful_removed": successful_removed}, headers=cors())
+    except Exception as e:
+        logger.error(f"Purge error: {e}")
+        return web.json_response({"ok": False, "error": str(e)}, headers=cors())
+
 async def a_dashboard(r):
     try:
         dpath = Path(__file__).parent / "dashboard.html"
@@ -882,6 +917,7 @@ async def start_api():
     app.router.add_get('/api/settings', a_settings)
     app.router.add_get('/api/stats', a_stats)
     app.router.add_get('/api/alerts', a_alerts)
+    app.router.add_get('/api/alerts/purge', a_purge_alerts)
     runner = web.AppRunner(app); await runner.setup()
     await web.TCPSite(runner, '0.0.0.0', 8080).start()
     logger.info("🌐 API: 8080 · Dashboard: /")

@@ -47,6 +47,18 @@ a:hover { color:#c93e13; }
 .cfg button:hover { background:var(--accent); border-color:var(--accent); }
 .cfg button.sec { background:transparent; color:var(--ink); }
 .cfg button.sec:hover { background:var(--ink); color:var(--card); }
+.cfg select { flex:1; background:var(--card); border:2px solid var(--ink); padding:9px 12px; color:var(--ink); font-family:'Space Mono',monospace; font-size:12px; }
+.cfg select:focus { outline:none; border-color:var(--accent); }
+.cfg-sect { margin-top:22px; padding-top:20px; border-top:2px solid var(--ink); }
+.cfg-help { font-size:11px; color:var(--dim); margin-bottom:10px; line-height:1.5; }
+.cfg-list { margin-top:12px; }
+.cfg-list .item { display:flex; justify-content:space-between; align-items:baseline; padding:8px 0; border-bottom:1px solid var(--list); gap:12px; }
+.cfg-list .item:last-child { border-bottom:none; }
+.cfg-list .item .sym { font-size:13px; font-weight:700; }
+.cfg-list .item .amt { font-size:14px; font-weight:700; }
+.cfg-list .item .rm { background:transparent; border:1px solid var(--ink); color:var(--ink); padding:3px 8px; font-family:'Space Mono',monospace; font-size:10px; font-weight:700; text-transform:uppercase; cursor:pointer; }
+.cfg-list .item .rm:hover { background:var(--ink); color:var(--card); }
+.cfg-list .empty { font-size:11px; color:var(--dimmer); padding:6px 0; }
 
 /* KPI row */
 .kpi { display:grid; grid-template-columns:repeat(4,1fr); border-bottom:3px solid var(--ink); }
@@ -167,6 +179,31 @@ a:hover { color:#c93e13; }
       <button onclick="saveConfig()">Save</button>
       <button class="sec" onclick="hideCfg()" id="cfg-cancel" style="display:none;">Cancel</button>
     </div>
+
+    <!-- Manual token adjustments -->
+    <div class="cfg-sect">
+      <div class="lbl">Manual token adjustments</div>
+      <div class="cfg-help">Add tokens claimed before the bot existed. Added to displayed totals.</div>
+      <div class="row">
+        <input id="cfg-tok-sym" type="text" placeholder="OSMO" style="flex:0 1 120px; text-transform:uppercase;" />
+        <input id="cfg-tok-amt" type="text" placeholder="5.00" style="flex:0 1 140px;" />
+        <button onclick="addManualToken()">Add</button>
+      </div>
+      <div id="cfg-tok-list" class="cfg-list"></div>
+    </div>
+
+    <!-- Delete alerts from channel -->
+    <div class="cfg-sect">
+      <div class="lbl">Delete alerts from channel</div>
+      <div class="cfg-help">Permanently deletes alerts and adjusts stats. Cannot be undone.</div>
+      <div class="row">
+        <select id="cfg-purge-ch" style="flex:1;">
+          <option value="">— select channel —</option>
+        </select>
+        <button onclick="purgeChannel()">Delete</button>
+      </div>
+      <div id="cfg-purge-msg" style="font-size:11px; margin-top:8px; display:none;"></div>
+    </div>
   </div>
 
   <!-- KPI row -->
@@ -236,6 +273,10 @@ const LOCAL = window.location.origin;
 let REMOTE = localStorage.getItem('ggwall_bot2_url') || '';
 let BOT1_NAME = localStorage.getItem('ggwall_bot1_name') || 'GGWALL';
 let BOT2_NAME = localStorage.getItem('ggwall_bot2_name') || 'GGWALL2';
+let MANUAL_TOKENS = JSON.parse(localStorage.getItem('ggwall_manual_tokens') || '{}');
+
+// Cache of channels found in alerts (used for purge dropdown)
+let ALL_CHANNELS = new Set();
 
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
 function fmt(n){
@@ -367,13 +408,17 @@ function render(s1, s2, a1, a2){
     ).join('');
   }
 
-  // Tokens claimed (combined)
+  // Tokens claimed (combined) — με manual adjustments
   const combTokens = {};
   const perBotTokens = { b1: (s1?.tokens || {}), b2: (s2?.tokens || {}) };
   for(const src of [perBotTokens.b1, perBotTokens.b2]){
     for(const [k,v] of Object.entries(src)){
       combTokens[k] = (combTokens[k]||0) + v;
     }
+  }
+  // Πρόσθεσε manual tokens
+  for(const [k, v] of Object.entries(MANUAL_TOKENS)){
+    combTokens[k] = (combTokens[k]||0) + v;
   }
   const tokKeys = Object.keys(combTokens).sort((a,b) => combTokens[b] - combTokens[a]);
   const tokEl = document.getElementById('token-list');
@@ -384,9 +429,12 @@ function render(s1, s2, a1, a2){
       const total = combTokens[k];
       const v1 = perBotTokens.b1[k] || 0;
       const v2 = perBotTokens.b2[k] || 0;
-      const bd = dual
-        ? `${esc(BOT1_NAME)} ${fmt(v1)} · ${esc(BOT2_NAME)} ${fmt(v2)}`
-        : `${esc(BOT1_NAME)} ${fmt(v1)}`;
+      const manual = MANUAL_TOKENS[k] || 0;
+      let bdParts = [];
+      bdParts.push(`${esc(BOT1_NAME)} ${fmt(v1)}`);
+      if(dual) bdParts.push(`${esc(BOT2_NAME)} ${fmt(v2)}`);
+      if(manual > 0) bdParts.push(`Manual ${fmt(manual)}`);
+      const bd = bdParts.join(' · ');
       return `
         <div class="tok">
           <div class="top">
@@ -401,6 +449,10 @@ function render(s1, s2, a1, a2){
 
   // Activity log
   allAlerts.sort((x,y) => (y.id||0) - (x.id||0));
+  // Update channel cache για το purge dropdown
+  ALL_CHANNELS = new Set();
+  allAlerts.forEach(a => { if(a.channel) ALL_CHANNELS.add(a.channel); });
+
   const actEl = document.getElementById('act-list');
   if(allAlerts.length === 0){
     actEl.innerHTML = '<div class="act-empty">Waiting for the next giveaway…</div>';
@@ -431,9 +483,12 @@ function showCfg(){
   document.getElementById('cfg-u2').value = REMOTE || '';
   document.getElementById('cfg-panel').style.display = 'block';
   document.getElementById('cfg-cancel').style.display = REMOTE ? 'inline-block' : 'none';
+  renderManualTokens();
+  renderPurgeDropdown();
 }
 function hideCfg(){
   document.getElementById('cfg-panel').style.display = 'none';
+  document.getElementById('cfg-purge-msg').style.display = 'none';
 }
 function saveConfig(){
   const n1 = document.getElementById('cfg-n1').value.trim() || 'GGWALL';
@@ -458,6 +513,95 @@ function saveConfig(){
 
   hideCfg();
   load();
+}
+
+// Manual token adjustments
+function renderManualTokens(){
+  const el = document.getElementById('cfg-tok-list');
+  const keys = Object.keys(MANUAL_TOKENS).sort();
+  if(keys.length === 0){
+    el.innerHTML = '<div class="empty">no manual adjustments</div>';
+    return;
+  }
+  el.innerHTML = keys.map(k =>
+    `<div class="item">
+      <span class="sym">$${esc(k)}</span>
+      <span class="amt">${fmt(MANUAL_TOKENS[k])}</span>
+      <button class="rm" onclick="removeManualToken('${esc(k)}')">× Remove</button>
+    </div>`
+  ).join('');
+}
+function addManualToken(){
+  const symEl = document.getElementById('cfg-tok-sym');
+  const amtEl = document.getElementById('cfg-tok-amt');
+  const sym = symEl.value.trim().toUpperCase().replace(/^\$/, '');
+  const amt = parseFloat(amtEl.value.trim().replace(',', '.'));
+  if(!sym || !/^[A-Z][A-Z0-9]{0,15}$/.test(sym)){
+    alert('Invalid symbol. Use uppercase letters/numbers only (e.g. OSMO).');
+    return;
+  }
+  if(isNaN(amt) || amt <= 0){
+    alert('Invalid amount. Enter a positive number.');
+    return;
+  }
+  MANUAL_TOKENS[sym] = (MANUAL_TOKENS[sym] || 0) + amt;
+  localStorage.setItem('ggwall_manual_tokens', JSON.stringify(MANUAL_TOKENS));
+  symEl.value = '';
+  amtEl.value = '';
+  renderManualTokens();
+  load();
+}
+function removeManualToken(sym){
+  if(!confirm(`Remove manual adjustment for $${sym}?`)) return;
+  delete MANUAL_TOKENS[sym];
+  localStorage.setItem('ggwall_manual_tokens', JSON.stringify(MANUAL_TOKENS));
+  renderManualTokens();
+  load();
+}
+
+// Channel purge
+function renderPurgeDropdown(){
+  const sel = document.getElementById('cfg-purge-ch');
+  const channels = Array.from(ALL_CHANNELS).sort();
+  sel.innerHTML = '<option value="">— select channel —</option>' +
+    channels.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+}
+async function purgeChannel(){
+  const sel = document.getElementById('cfg-purge-ch');
+  const channel = sel.value;
+  const msg = document.getElementById('cfg-purge-msg');
+  if(!channel){
+    alert('Please select a channel.');
+    return;
+  }
+  if(!confirm(`Permanently delete all alerts from "${channel}"?\n\nThis will:\n• Remove all alert entries\n• Decrement stats counters\n• Cannot be undone`)) return;
+
+  msg.style.display = 'block';
+  msg.style.color = 'var(--dim)';
+  msg.textContent = 'Purging…';
+
+  const results = [];
+  try {
+    const r1 = await fetch(`${LOCAL}/api/alerts/purge?channel=${encodeURIComponent(channel)}`);
+    const d1 = await r1.json();
+    results.push(`${BOT1_NAME}: ${d1.removed || 0} removed`);
+  } catch(e) {
+    results.push(`${BOT1_NAME}: error`);
+  }
+  if(REMOTE){
+    try {
+      const r2 = await fetch(`${REMOTE}/api/alerts/purge?channel=${encodeURIComponent(channel)}`);
+      const d2 = await r2.json();
+      results.push(`${BOT2_NAME}: ${d2.removed || 0} removed`);
+    } catch(e) {
+      results.push(`${BOT2_NAME}: error`);
+    }
+  }
+
+  msg.style.color = 'var(--ok)';
+  msg.textContent = '✓ ' + results.join(' · ');
+  sel.value = '';
+  setTimeout(() => load(), 500);
 }
 
 if(!REMOTE){ showCfg(); }
