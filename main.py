@@ -455,7 +455,13 @@ async def on_msg(event):
             for b in found_btn:
                 try:
                     t1 = time.time()
-                    await b.click()
+                    # Το Cosmobot συχνά δεν στέλνει callback answer,
+                    # οπότε το b.click() θα κάτσει να περιμένει ~15s timeout.
+                    # Κόβουμε στα 2s: το click έχει ήδη σταλεί, δεν χρειάζεται να περιμένουμε.
+                    try:
+                        await asyncio.wait_for(b.click(), timeout=2.0)
+                    except asyncio.TimeoutError:
+                        pass  # Click στάλθηκε, απλά δεν πήραμε response
                     el = round(time.time() - t1, 2)
                     ctime = f"{el}s"
                     clicked = True
@@ -469,9 +475,13 @@ async def on_msg(event):
                         stats.setdefault("tokens", {})
                         stats["tokens"][tok_sym] = round(stats["tokens"].get(tok_sym, 0) + tok_amt, 4)
                     save_stats(stats)
-                    await bot_client.send_message(owner_id,
-                        f"✅ Auto-click: **{b.text}**  `({ctime})`", link_preview=False)
-                    logger.info(f"🖱️ Clicked: {b.text} in {ctime}")
+                    # Notification που δείχνει και το delay που εφαρμόστηκε
+                    if delay_applied > 0:
+                        notif = f"✅ Auto-click: **{b.text}**  `(waited {delay_applied:g}s + click {ctime})`"
+                    else:
+                        notif = f"✅ Auto-click: **{b.text}**  `(instant + click {ctime})`"
+                    await bot_client.send_message(owner_id, notif, link_preview=False)
+                    logger.info(f"🖱️ Clicked: {b.text} · delay={delay_applied}s · click={ctime}")
                 except Exception as e:
                     stats["total_clicks"] = stats.get("total_clicks", 0) + 1
                     stats["failed_clicks"] = stats.get("failed_clicks", 0) + 1
