@@ -545,6 +545,95 @@ def menu_text():
             f"🟢 Online · uptime {upt}")
 
 
+def build_submenu(kind):
+    """Επιστρέφει (text, buttons) για ένα από τα sub-menus.
+    Χρησιμοποιείται και από τον callback handler και μετά από save στο on_text."""
+    if kind == "delays":
+        dt = settings.get("delay_tiny", 10.0)
+        ds = settings.get("delay_small", 5.0)
+        dg = settings.get("delay_good", 0.0)
+        dp = settings.get("delay_many_people", 2.0)
+        good_txt = f"**{dg:g}s**" if dg > 0 else "**0s** (αμέσως)"
+        text = (
+            "⏱️ **Ρυθμίσεις Καθυστέρησης**\n"
+            "─────────────────────\n\n"
+            "Πόσο περιμένει πριν το claim,\n"
+            "βάσει ποσού ανά χρήστη:\n\n"
+            f"🐌 **Πολύ μικρό** `< 0.5`  →  **{dt:g}s**\n"
+            f"🚶 **Μικρό** `0.5–1`  →  **{ds:g}s**\n"
+            f"⚡ **Καλό** `≥ 1`  →  {good_txt}\n\n"
+            f"➕ **Bonus** αν 20+ άτομα  →  **+{dp:g}s**\n\n"
+            "_Πάτησε για αλλαγή:_"
+        )
+        btns = [
+            [Button.inline(f"🐌 Πολύ μικρό: {dt:g}s", b"set_tiny")],
+            [Button.inline(f"🚶 Μικρό: {ds:g}s", b"set_small")],
+            [Button.inline(f"⚡ Καλό: {dg:g}s", b"set_good")],
+            [Button.inline(f"➕ Bonus πολλών: {dp:g}s", b"set_many")],
+            [Button.inline("← Πίσω", b"back")]
+        ]
+        return text, btns
+
+    elif kind == "keywords":
+        btns = [[Button.inline(f"🗑️ {k}", f"rmkw_{k}".encode())] for k in settings.get("keywords", [])]
+        btns.append([Button.inline("➕ Προσθήκη", b"add_kw")])
+        btns.append([Button.inline("← Πίσω", b"back")])
+        kl = settings.get("keywords", [])
+        lock_note = ""
+        if settings.get("buttons_only"):
+            lock_note = "\n\n🔒 _Ανενεργές — το 'Μόνο κουμπιά' είναι ON.\nΓια να δουλέψουν, σβήσε το 'Μόνο κουμπιά'._"
+        text = "📋 **Λέξεις-Κλειδιά**\n─────────────────────\n\n" + ("\n".join(f"• {k}" for k in kl) if kl else "_Κενό_") + lock_note
+        return text, btns
+
+    elif kind == "channels":
+        btns = [[Button.inline(f"🗑️ {c}", f"rmch_{c}".encode())] for c in settings.get("channels", [])]
+        btns.append([Button.inline("➕ Προσθήκη", b"add_ch")])
+        btns.append([Button.inline("← Πίσω", b"back")])
+        cl = settings.get("channels", [])
+        text = "📡 **Κανάλια**\n─────────────────────\n\n" + ("\n".join(f"• {c}" for c in cl) if cl else "_Κενό_")
+        return text, btns
+
+    elif kind == "clickwords":
+        btns = [[Button.inline(f"🗑️ {c}", f"rmcw_{c}".encode())] for c in settings.get("click_words", [])]
+        btns.append([Button.inline("➕ Προσθήκη", b"add_cw")])
+        btns.append([Button.inline("← Πίσω", b"back")])
+        cl = settings.get("click_words", [])
+        text = "🏷️ **Λέξεις Κουμπιών**\n─────────────────────\n\n" + ("\n".join(f"• {c}" for c in cl) if cl else "_Κενό_")
+        return text, btns
+
+    elif kind == "detectwords":
+        dkw = settings.get("detect_keywords", [])
+        btns = [[Button.inline(f"🗑️ {c}", f"rmdk_{c}".encode())] for c in dkw]
+        btns.append([Button.inline("➕ Προσθήκη", b"add_dk")])
+        btns.append([Button.inline("← Πίσω", b"back")])
+        ad_status = "🟢 ON" if settings.get("auto_detect") else "🔴 OFF"
+        text = (
+            "🔍 **Λέξεις Ανίχνευσης**\n─────────────────────\n\n"
+            "Το bot προτείνει νέα κανάλια όταν το μήνυμα:\n"
+            "• Περιέχει κάποια από αυτές τις λέξεις, **ή**\n"
+            "• Προέρχεται από monitored κανάλι\n\n"
+            f"Auto-detect: {ad_status}\n\n"
+            "**Λέξεις:**\n"
+            + ("\n".join(f"• {x}" for x in dkw) if dkw else "_Κενό_")
+        )
+        return text, btns
+
+    return None, None
+
+
+# Mapping από text-input state → submenu που πρέπει να ξαναεμφανιστεί μετά το save
+STATE_TO_SUBMENU = {
+    "SET_TINY": "delays",
+    "SET_SMALL": "delays",
+    "SET_GOOD": "delays",
+    "SET_MANY": "delays",
+    "ADD_KW": "keywords",
+    "ADD_CH": "channels",
+    "ADD_CW": "clickwords",
+    "ADD_DK": "detectwords",
+}
+
+
 def is_authorized(user_id):
     """Ελέγχει αν ο χρήστης έχει δικαίωμα να χρησιμοποιήσει το bot"""
     # Αν έχει οριστεί AUTHORIZED_USER_ID, μόνο αυτός επιτρέπεται
@@ -598,41 +687,19 @@ async def on_cb(event):
         data = event.data.decode('utf-8')
 
         if data == "keywords":
-            btns = [[Button.inline(f"🗑️ {k}", f"rmkw_{k}".encode())] for k in settings.get("keywords", [])]
-            btns.append([Button.inline("➕ Προσθήκη", b"add_kw")]); btns.append([Button.inline("← Πίσω", b"back")])
-            kl = settings.get("keywords", [])
-            lock_note = ""
-            if settings.get("buttons_only"):
-                lock_note = "\n\n🔒 _Ανενεργές — το 'Μόνο κουμπιά' είναι ON.\nΓια να δουλέψουν, σβήσε το 'Μόνο κουμπιά'._"
-            await event.edit("📋 **Λέξεις-Κλειδιά**\n─────────────────────\n\n" + ("\n".join(f"• {k}" for k in kl) if kl else "_Κενό_") + lock_note, buttons=btns)
+            text, btns = build_submenu("keywords")
+            await event.edit(text, buttons=btns)
 
         elif data == "channels":
-            btns = [[Button.inline(f"🗑️ {c}", f"rmch_{c}".encode())] for c in settings.get("channels", [])]
-            btns.append([Button.inline("➕ Προσθήκη", b"add_ch")]); btns.append([Button.inline("← Πίσω", b"back")])
-            cl = settings.get("channels", [])
-            await event.edit("📡 **Κανάλια**\n─────────────────────\n\n" + ("\n".join(f"• {c}" for c in cl) if cl else "_Κενό_"), buttons=btns)
+            text, btns = build_submenu("channels")
+            await event.edit(text, buttons=btns)
 
         elif data == "clickwords":
-            btns = [[Button.inline(f"🗑️ {c}", f"rmcw_{c}".encode())] for c in settings.get("click_words", [])]
-            btns.append([Button.inline("➕ Προσθήκη", b"add_cw")]); btns.append([Button.inline("← Πίσω", b"back")])
-            cl = settings.get("click_words", [])
-            await event.edit("🏷️ **Λέξεις Κουμπιών**\n─────────────────────\n\n" + ("\n".join(f"• {c}" for c in cl) if cl else "_Κενό_"), buttons=btns)
+            text, btns = build_submenu("clickwords")
+            await event.edit(text, buttons=btns)
 
         elif data == "detectwords":
-            dkw = settings.get("detect_keywords", [])
-            btns = [[Button.inline(f"🗑️ {c}", f"rmdk_{c}".encode())] for c in dkw]
-            btns.append([Button.inline("➕ Προσθήκη", b"add_dk")])
-            btns.append([Button.inline("← Πίσω", b"back")])
-            ad_status = "🟢 ON" if settings.get("auto_detect") else "🔴 OFF"
-            text = (
-                "🔍 **Λέξεις Ανίχνευσης**\n─────────────────────\n\n"
-                "Το bot προτείνει νέα κανάλια όταν το μήνυμα:\n"
-                "• Περιέχει κάποια από αυτές τις λέξεις, **ή**\n"
-                "• Προέρχεται από monitored κανάλι\n\n"
-                f"Auto-detect: {ad_status}\n\n"
-                "**Λέξεις:**\n"
-                + ("\n".join(f"• {c}" for c in dkw) if dkw else "_Κενό_")
-            )
+            text, btns = build_submenu("detectwords")
             await event.edit(text, buttons=btns)
 
         elif data == "stats":
@@ -691,29 +758,7 @@ async def on_cb(event):
                 await event.edit(menu_text(), buttons=menu_buttons())
 
         elif data == "delays":
-            dt = settings.get("delay_tiny", 10.0)
-            ds = settings.get("delay_small", 5.0)
-            dg = settings.get("delay_good", 0.0)
-            dp = settings.get("delay_many_people", 2.0)
-            good_txt = f"**{dg:g}s**" if dg > 0 else "**0s** (αμέσως)"
-            text = (
-                "⏱️ **Ρυθμίσεις Καθυστέρησης**\n"
-                "─────────────────────\n\n"
-                "Πόσο περιμένει πριν το claim,\n"
-                "βάσει ποσού ανά χρήστη:\n\n"
-                f"🐌 **Πολύ μικρό** `< 0.5`  →  **{dt:g}s**\n"
-                f"🚶 **Μικρό** `0.5–1`  →  **{ds:g}s**\n"
-                f"⚡ **Καλό** `≥ 1`  →  {good_txt}\n\n"
-                f"➕ **Bonus** αν 20+ άτομα  →  **+{dp:g}s**\n\n"
-                "_Πάτησε για αλλαγή:_"
-            )
-            btns = [
-                [Button.inline(f"🐌 Πολύ μικρό: {dt:g}s", b"set_tiny")],
-                [Button.inline(f"🚶 Μικρό: {ds:g}s", b"set_small")],
-                [Button.inline(f"⚡ Καλό: {dg:g}s", b"set_good")],
-                [Button.inline(f"➕ Bonus πολλών: {dp:g}s", b"set_many")],
-                [Button.inline("← Πίσω", b"back")]
-            ]
+            text, btns = build_submenu("delays")
             await event.edit(text, buttons=btns)
 
         elif data == "set_tiny":
@@ -762,43 +807,24 @@ async def on_cb(event):
         elif data.startswith("rmkw_"):
             k = data[5:]
             if k in settings.get("keywords", []): settings["keywords"].remove(k); save_settings(settings)
-            btns = [[Button.inline(f"🗑️ {x}", f"rmkw_{x}".encode())] for x in settings.get("keywords", [])]
-            btns.append([Button.inline("➕ Προσθήκη", b"add_kw")]); btns.append([Button.inline("← Πίσω", b"back")])
-            kl = settings.get("keywords", [])
-            await event.edit("📋 **Λέξεις-Κλειδιά**\n─────────────────────\n\n" + ("\n".join(f"• {x}" for x in kl) if kl else "_Κενό_"), buttons=btns)
+            text, btns = build_submenu("keywords")
+            await event.edit(text, buttons=btns)
         elif data.startswith("rmch_"):
             c = data[5:]
             if c in settings.get("channels", []): settings["channels"].remove(c); save_settings(settings)
-            btns = [[Button.inline(f"🗑️ {x}", f"rmch_{x}".encode())] for x in settings.get("channels", [])]
-            btns.append([Button.inline("➕ Προσθήκη", b"add_ch")]); btns.append([Button.inline("← Πίσω", b"back")])
-            cl = settings.get("channels", [])
-            await event.edit("📡 **Κανάλια**\n─────────────────────\n\n" + ("\n".join(f"• {x}" for x in cl) if cl else "_Κενό_"), buttons=btns)
+            text, btns = build_submenu("channels")
+            await event.edit(text, buttons=btns)
         elif data.startswith("rmcw_"):
             c = data[5:]
             if c in settings.get("click_words", []): settings["click_words"].remove(c); save_settings(settings)
-            btns = [[Button.inline(f"🗑️ {x}", f"rmcw_{x}".encode())] for x in settings.get("click_words", [])]
-            btns.append([Button.inline("➕ Προσθήκη", b"add_cw")]); btns.append([Button.inline("← Πίσω", b"back")])
-            cl = settings.get("click_words", [])
-            await event.edit("🏷️ **Λέξεις Κουμπιών**\n─────────────────────\n\n" + ("\n".join(f"• {x}" for x in cl) if cl else "_Κενό_"), buttons=btns)
+            text, btns = build_submenu("clickwords")
+            await event.edit(text, buttons=btns)
 
         elif data.startswith("rmdk_"):
             k = data[5:]
             if k in settings.get("detect_keywords", []):
                 settings["detect_keywords"].remove(k); save_settings(settings)
-            dkw = settings.get("detect_keywords", [])
-            btns = [[Button.inline(f"🗑️ {x}", f"rmdk_{x}".encode())] for x in dkw]
-            btns.append([Button.inline("➕ Προσθήκη", b"add_dk")])
-            btns.append([Button.inline("← Πίσω", b"back")])
-            ad_status = "🟢 ON" if settings.get("auto_detect") else "🔴 OFF"
-            text = (
-                "🔍 **Λέξεις Ανίχνευσης**\n─────────────────────\n\n"
-                "Το bot προτείνει νέα κανάλια όταν το μήνυμα:\n"
-                "• Περιέχει κάποια από αυτές τις λέξεις, **ή**\n"
-                "• Προέρχεται από monitored κανάλι\n\n"
-                f"Auto-detect: {ad_status}\n\n"
-                "**Λέξεις:**\n"
-                + ("\n".join(f"• {x}" for x in dkw) if dkw else "_Κενό_")
-            )
+            text, btns = build_submenu("detectwords")
             await event.edit(text, buttons=btns)
 
         elif data.startswith("ac_"):
@@ -834,34 +860,41 @@ async def on_text(event):
         if sid not in user_states: return
         if not event.message.text or event.message.text.startswith("/"): return
         st = user_states.pop(sid); t = event.message.text.strip()
+        confirm_msg = None  # Το μήνυμα επιβεβαίωσης
+        changed = False   # True αν έγινε αλλαγή
+
         if st == "ADD_KW":
             if t and t not in settings.get("keywords", []):
                 settings.setdefault("keywords", []).append(t); save_settings(settings)
-                await event.reply(f"✅ Λέξη: **{t}**")
-            else: await event.reply("⚠️ Υπάρχει")
+                confirm_msg = f"✅ Λέξη: **{t}**"; changed = True
+            else:
+                confirm_msg = "⚠️ Υπάρχει"
         elif st == "ADD_CH":
             c = t.replace("@","").strip()
             if c and c not in settings.get("channels", []):
                 settings.setdefault("channels", []).append(c); save_settings(settings)
-                await event.reply(f"✅ Κανάλι: **{c}**")
-            else: await event.reply("⚠️ Υπάρχει")
+                confirm_msg = f"✅ Κανάλι: **{c}**"; changed = True
+            else:
+                confirm_msg = "⚠️ Υπάρχει"
         elif st == "ADD_CW":
             c = t.lower().strip()
             if c and c not in settings.get("click_words", []):
                 settings.setdefault("click_words", []).append(c); save_settings(settings)
-                await event.reply(f"✅ Button word: **{c}**")
-            else: await event.reply("⚠️ Υπάρχει")
+                confirm_msg = f"✅ Button word: **{c}**"; changed = True
+            else:
+                confirm_msg = "⚠️ Υπάρχει"
         elif st == "ADD_DK":
             c = t.lower().strip()
             if c and c not in settings.get("detect_keywords", []):
                 settings.setdefault("detect_keywords", []).append(c); save_settings(settings)
-                await event.reply(f"✅ Detect keyword: **{c}**")
-            else: await event.reply("⚠️ Υπάρχει")
+                confirm_msg = f"✅ Detect keyword: **{c}**"; changed = True
+            else:
+                confirm_msg = "⚠️ Υπάρχει"
         elif st in ("SET_TINY", "SET_SMALL", "SET_GOOD", "SET_MANY"):
             try:
                 val = float(t.replace(",", ".").strip())
                 if val < 0 or val > 120:
-                    await event.reply("⚠️ Βάλε αριθμό 0-120")
+                    confirm_msg = "⚠️ Βάλε αριθμό 0-120"
                 else:
                     key = {
                         "SET_TINY": "delay_tiny",
@@ -871,9 +904,22 @@ async def on_text(event):
                     }[st]
                     settings[key] = val
                     save_settings(settings)
-                    await event.reply(f"✅ Ρυθμίστηκε: **{val:g}s**")
+                    confirm_msg = f"✅ Ρυθμίστηκε: **{val:g}s**"
+                    changed = True
             except ValueError:
-                await event.reply("⚠️ Βάλε έγκυρο αριθμό (π.χ. 10)")
+                confirm_msg = "⚠️ Βάλε έγκυρο αριθμό (π.χ. 10)"
+
+        # Στείλε επιβεβαίωση και ΞΑΝΑ το menu (για να μη χρειάζεται /start)
+        menu_kind = STATE_TO_SUBMENU.get(st)
+        if menu_kind and confirm_msg:
+            menu_text_str, menu_btns = build_submenu(menu_kind)
+            if menu_text_str:
+                # Συνδύασε επιβεβαίωση + menu σε ένα μήνυμα
+                await event.reply(f"{confirm_msg}\n\n{menu_text_str}", buttons=menu_btns)
+            else:
+                await event.reply(confirm_msg)
+        elif confirm_msg:
+            await event.reply(confirm_msg)
     except Exception as e:
         logger.error(f"Text: {e}")
 
