@@ -73,7 +73,8 @@ DEFAULT_STATS = {
     "failed_clicks": 0,
     "fastest_click": None,
     "channels_detected": [],
-    "tokens": {}
+    "tokens": {},
+    "daily": {}  # {"2026-07-27": {"alerts": 5, "claims": 4, "tokens": {"ATOM": 1.2}}}
 }
 
 # ============ CLIENTS ============
@@ -129,6 +130,25 @@ def save_stats(s):
             json.dump(s, f, ensure_ascii=False, indent=2)
     except Exception as e:
         logger.error(f"Stats save: {e}")
+
+def bump_daily(kind, tok_sym=None, tok_amt=None):
+    """Ενημερώνει τον daily counter για σήμερα.
+    kind: 'alert' | 'claim'
+    """
+    today = time.strftime("%Y-%m-%d")
+    stats.setdefault("daily", {})
+    day = stats["daily"].setdefault(today, {"alerts": 0, "claims": 0, "tokens": {}})
+    if kind == "alert":
+        day["alerts"] = day.get("alerts", 0) + 1
+    elif kind == "claim":
+        day["claims"] = day.get("claims", 0) + 1
+        if tok_sym and tok_amt:
+            day.setdefault("tokens", {})
+            day["tokens"][tok_sym] = round(day["tokens"].get(tok_sym, 0) + tok_amt, 4)
+    # Κράτα μόνο τις τελευταίες 60 μέρες (καθάρισμα)
+    if len(stats["daily"]) > 60:
+        for old_key in sorted(stats["daily"].keys())[:-60]:
+            del stats["daily"][old_key]
 
 settings = load_settings()
 stats = load_stats()
@@ -419,6 +439,7 @@ async def on_msg(event):
 
         # Stats
         stats["total_alerts"] = stats.get("total_alerts", 0) + 1
+        bump_daily("alert")
         save_stats(stats)
 
         # Alert
@@ -474,6 +495,7 @@ async def on_msg(event):
                     if tok_amt and tok_sym:
                         stats.setdefault("tokens", {})
                         stats["tokens"][tok_sym] = round(stats["tokens"].get(tok_sym, 0) + tok_amt, 4)
+                    bump_daily("claim", tok_sym, tok_amt)
                     save_stats(stats)
                     # Notification που δείχνει και το delay που εφαρμόστηκε
                     if delay_applied > 0:
@@ -730,9 +752,18 @@ async def on_cb(event):
             buttons = []
             if dash_url:
                 buttons.append([Button.url("📊 Άνοιξε Dashboard", f"https://{dash_url}")])
+            buttons.append([Button.inline("📊 Ημερήσια", b"sum_daily"), Button.inline("📈 Εβδομαδιαία", b"sum_weekly")])
             buttons.append([Button.inline("🔄 Reset", b"reset_stats")])
             buttons.append([Button.inline("← Πίσω", b"back")])
             await event.edit(text, buttons=buttons)
+
+        elif data == "sum_daily":
+            await event.answer("📊 Φτιάχνω αναφορά…")
+            await bot_client.send_message(event.sender_id, build_summary("daily"), link_preview=False)
+
+        elif data == "sum_weekly":
+            await event.answer("📈 Φτιάχνω αναφορά…")
+            await bot_client.send_message(event.sender_id, build_summary("weekly"), link_preview=False)
 
         elif data == "reset_stats":
             stats = copy.deepcopy(DEFAULT_STATS)
@@ -974,6 +1005,125 @@ async def a_dashboard(r):
     except Exception as e:
         return web.Response(text=str(e), status=500)
 
+# ============ DAILY / WEEKLY SUMMARY ============
+def _fmt_tok(v):
+    if v >= 1000:
+        return f"{v:,.0f}"
+    return f"{v:g}" if v == int(v) else f"{v:.2f}"
+
+def build_summary(period="daily"):
+    """Φτιάχνει όμορφο summary. period: 'daily' | 'weekly'."""
+    import datetime
+    daily = stats.get("daily", {})
+
+    if period == "daily":
+        target = time.strftime("%Y-%m-%d")
+        days = [target]
+        title = "📊 **ΗΜΕΡΗΣΙΑ ΑΝΑΦΟΡΑ**"
+        date_label = time.strftime("%d/%m/%Y")
+    else:
+        # τελευταίες 7 μέρες
+        today = datetime.date.today()
+        days = [(today - datetime.timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
+        title = "📈 **ΕΒΔΟΜΑΔΙΑΙΑ ΑΝΑΦΟΡΑ**"
+        d_from = (today - datetime.timedelta(days=6)).strftime("%d/%m")
+        d_to = today.strftime("%d/%m/%Y")
+        date_label = f"{d_from} — {d_to}"
+
+    # Άθροισμα
+    total_alerts = 0
+    total_claims = 0
+    tok_totals = {}
+    active_days = 0
+    best_day = None
+    best_day_claims = -1
+
+    for d in days:
+        rec = daily.get(d)
+        if not rec:
+            continue
+        a = rec.get("alerts", 0)
+        c = rec.get("claims", 0)
+        if c > 0 or a > 0:
+            active_days += 1
+        total_alerts += a
+        total_claims += c
+        if c > best_day_claims:
+            best_day_claims = c
+            best_day = d
+        for sym, amt in rec.get("tokens", {}).items():
+            tok_totals[sym] = round(tok_totals.get(sym, 0) + amt, 4)
+
+    hit = round(total_claims / total_alerts * 100) if total_alerts > 0 else 0
+
+    # Χτίσιμο μηνύματος
+    lines = [title, f"`{date_label}`", "━━━━━━━━━━━━━━━━━━━━", ""]
+
+    if total_alerts == 0 and total_claims == 0:
+        lines.append("😴 Καμία δραστηριότητα.")
+        lines.append("")
+        lines.append("_Τα bots παρακολουθούν, απλά δεν εμφανίστηκε giveaway._")
+        return "\n".join(lines)
+
+    # Highlights
+    lines.append(f"🔔 Signals:  **{total_alerts}**")
+    lines.append(f"✅ Claims:  **{total_claims}**")
+    lines.append(f"🎯 Hit rate:  **{hit}%**")
+    lines.append("")
+
+    # Tokens
+    if tok_totals:
+        lines.append("💰 **Tokens που μάζεψες:**")
+        for sym in sorted(tok_totals, key=lambda k: -tok_totals[k]):
+            lines.append(f"   ▸ `{_fmt_tok(tok_totals[sym])}` **${sym}**")
+        lines.append("")
+
+    # Weekly extras
+    if period == "weekly":
+        import datetime as _dt
+        lines.append(f"📅 Ενεργές μέρες:  **{active_days}/7**")
+        if best_day and best_day_claims > 0:
+            try:
+                bd = _dt.datetime.strptime(best_day, "%Y-%m-%d").strftime("%A %d/%m")
+            except Exception:
+                bd = best_day
+            lines.append(f"🏆 Καλύτερη μέρα:  **{best_day_claims} claims** ({bd})")
+        avg = round(total_claims / 7, 1)
+        lines.append(f"📉 Μ.Ο. ημέρας:  **{avg}** claims")
+        lines.append("")
+
+    lines.append("━━━━━━━━━━━━━━━━━━━━")
+    lines.append("_GGWALL Monitor · auto-report_")
+
+    return "\n".join(lines)
+
+
+async def summary_scheduler():
+    """Στέλνει daily στις 22:00, weekly την Κυριακή 22:00."""
+    import datetime
+    await asyncio.sleep(10)  # Λίγη ώρα μετά το startup
+    last_sent_date = None
+    while True:
+        try:
+            now = datetime.datetime.now()
+            # Στις 22:00 (ελέγχει στο παράθυρο 22:00-22:04)
+            if now.hour == 22 and now.minute < 5:
+                today_str = now.strftime("%Y-%m-%d")
+                if last_sent_date != today_str and owner_id:
+                    # Daily πάντα
+                    await bot_client.send_message(owner_id, build_summary("daily"), link_preview=False)
+                    # Weekly μόνο Κυριακή (weekday 6)
+                    if now.weekday() == 6:
+                        await asyncio.sleep(1)
+                        await bot_client.send_message(owner_id, build_summary("weekly"), link_preview=False)
+                    last_sent_date = today_str
+                    logger.info(f"📊 Summary sent for {today_str}")
+            await asyncio.sleep(60)  # Έλεγχος κάθε λεπτό
+        except Exception as e:
+            logger.error(f"Summary scheduler: {e}")
+            await asyncio.sleep(60)
+
+
 async def start_api():
     app = web.Application()
     app.router.add_get('/', a_dashboard)
@@ -1009,6 +1159,7 @@ async def main():
     await fetch_my_channels()
     await bot_client.start(bot_token=BOT_TOKEN); logger.info("✅ Bot!")
     await start_api()
+    asyncio.create_task(summary_scheduler())
     logger.info(f"✅ Ready! {len(settings.get('channels',[]))} channels, auto-detect:{settings.get('auto_detect')}, smart-delay:{settings.get('smart_delay')}")
     await asyncio.gather(user_client.run_until_disconnected(), bot_client.run_until_disconnected())
 
