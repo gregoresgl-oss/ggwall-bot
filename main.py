@@ -74,9 +74,13 @@ DEFAULT_STATS = {
     "fastest_click": None,
     "channels_detected": [],
     "tokens": {},          # tokens βάσει giveaway message (estimate)
-    "confirmed_tokens": {},# tokens επιβεβαιωμένα από Cosmobot (πραγματικά)
-    "real_claims": 0,      # επιβεβαιωμένες επιτυχίες από Cosmobot
-    "real_failed": 0,      # επιβεβαιωμένες αποτυχίες από Cosmobot
+    "confirmed_tokens": {},# tokens από giveaways (επιβεβαιωμένα)
+    "game_tokens": {},     # tokens από minigames
+    "tip_tokens": {},      # tokens από tips άλλων χρηστών
+    "real_claims": 0,      # επιβεβαιωμένες επιτυχίες giveaway
+    "real_failed": 0,      # επιβεβαιωμένες αποτυχίες giveaway
+    "game_wins": 0,        # πόσα games κέρδισα
+    "tips_received": 0,    # πόσα tips έλαβα
     "daily": {}  # {"2026-07-27": {"alerts": 5, "claims": 4, "tokens": {"ATOM": 1.2}}}
 }
 
@@ -391,6 +395,11 @@ CONFIRM_AMOUNT_RE = re.compile(r'giveaway of\s+([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9
 REQUIRED_RE = re.compile(r'Required:\s*([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})', re.IGNORECASE)
 # Regex για aggregate: "Your aggregate: 1,237.74 $ATOM"
 AGGREGATE_RE = re.compile(r'aggregate:\s*([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})', re.IGNORECASE)
+# Regex για minigame: "won 0.289583 $ATOM" + "placed 2nd"
+GAME_WON_RE = re.compile(r'won\s+([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})', re.IGNORECASE)
+GAME_PLACE_RE = re.compile(r'placed\s+(\d+)(?:st|nd|rd|th)', re.IGNORECASE)
+# Regex για tip: "just sent you 0.5 $ATOM"
+TIP_RE = re.compile(r'sent you\s+([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})', re.IGNORECASE)
 
 @user_client.on(events.NewMessage(from_users='ibc_cosmobot'))
 async def on_cosmobot_dm(event):
@@ -421,6 +430,49 @@ async def on_cosmobot_dm(event):
                 await bot_client.send_message(owner_id,
                     f"✅ **Επιβεβαιωμένο!**\n\nΠήρες **{amt:g} ${sym}** 🎉", link_preview=False)
             logger.info(f"✅ Confirmed claim: {amt} {sym}")
+
+        # 🎮 MINIGAME reward: "You placed 2nd... won 0.28 $ATOM"
+        elif "won" in tl and ("placed" in tl or "packet" in tl or "ibc-0" in tl):
+            m = GAME_WON_RE.search(text)
+            place_m = GAME_PLACE_RE.search(text)
+            amt, sym = None, None
+            if m:
+                try:
+                    amt = float(m.group(1).replace(",", ""))
+                    sym = m.group(2).upper()
+                except Exception:
+                    pass
+            place = place_m.group(1) if place_m else None
+            stats["game_wins"] = stats.get("game_wins", 0) + 1
+            if amt and sym:
+                stats.setdefault("game_tokens", {})
+                stats["game_tokens"][sym] = round(stats["game_tokens"].get(sym, 0) + amt, 4)
+            save_stats(stats)
+            if amt and sym:
+                place_txt = f" ({place}η θέση)" if place else ""
+                await bot_client.send_message(owner_id,
+                    f"🎮 **Minigame!**{place_txt}\n\nΚέρδισες **{amt:g} ${sym}** 🕹️", link_preview=False)
+            logger.info(f"🎮 Game win: {amt} {sym} (place {place})")
+
+        # 🎁 TIP received: "Shalaxi just sent you 0.5 $ATOM"
+        elif "sent you" in tl:
+            m = TIP_RE.search(text)
+            amt, sym = None, None
+            if m:
+                try:
+                    amt = float(m.group(1).replace(",", ""))
+                    sym = m.group(2).upper()
+                except Exception:
+                    pass
+            stats["tips_received"] = stats.get("tips_received", 0) + 1
+            if amt and sym:
+                stats.setdefault("tip_tokens", {})
+                stats["tip_tokens"][sym] = round(stats["tip_tokens"].get(sym, 0) + amt, 4)
+            save_stats(stats)
+            if amt and sym:
+                await bot_client.send_message(owner_id,
+                    f"🎁 **Tip!**\n\nΚάποιος σου έστειλε **{amt:g} ${sym}** 💝", link_preview=False)
+            logger.info(f"🎁 Tip: {amt} {sym}")
 
         # ❌ ΑΠΟΤΥΧΙΑ — Requirements
         elif "don't meet the requirements" in tl or "do not meet the requirements" in tl:
@@ -849,20 +901,38 @@ async def on_cb(event):
                 tok_lines = "\n\n💰 **Tokens (est.):**\n" + "\n".join(
                     f"  • {v:g} ${k}" for k, v in sorted_toks[:8]
                 )
-            # Confirmed tokens (πραγματικά από Cosmobot)
+            # Confirmed tokens (giveaways)
             ctoks = stats.get("confirmed_tokens", {})
             conf_lines = ""
             if ctoks:
                 sorted_ctoks = sorted(ctoks.items(), key=lambda x: -x[1])
-                conf_lines = "\n\n✅ **Επιβεβαιωμένα:**\n" + "\n".join(
-                    f"  • {v:g} ${k}" for k, v in sorted_ctoks[:8]
+                conf_lines = "\n\n🎯 **Από giveaways:**\n" + "\n".join(
+                    f"  • {v:g} ${k}" for k, v in sorted_ctoks[:6]
+                )
+            # Game tokens
+            gtoks = stats.get("game_tokens", {})
+            game_lines = ""
+            if gtoks:
+                sorted_g = sorted(gtoks.items(), key=lambda x: -x[1])
+                gw = stats.get("game_wins", 0)
+                game_lines = f"\n\n🎮 **Από games** ({gw} νίκες):\n" + "\n".join(
+                    f"  • {v:g} ${k}" for k, v in sorted_g[:6]
+                )
+            # Tip tokens
+            ttoks = stats.get("tip_tokens", {})
+            tip_lines = ""
+            if ttoks:
+                sorted_t = sorted(ttoks.items(), key=lambda x: -x[1])
+                tr = stats.get("tips_received", 0)
+                tip_lines = f"\n\n🎁 **Από tips** ({tr}):\n" + "\n".join(
+                    f"  • {v:g} ${k}" for k, v in sorted_t[:6]
                 )
             # Real claim line (μόνο αν έχουμε δεδομένα)
             real_line = ""
             rc = stats.get("real_claims", 0)
             rf = stats.get("real_failed", 0)
             if rc > 0 or rf > 0:
-                real_line = f"\n🎯 **Επιβεβαιωμένα:**  {rc} ✅ · {rf} ❌"
+                real_line = f"\n🎯 **Giveaway claims:**  {rc} ✅ · {rf} ❌"
             text = (
                 "📊 **Στατιστικά**\n─────────────────────\n\n"
                 f"🔔 **Alerts:**  {stats.get('total_alerts', 0)}\n"
@@ -874,6 +944,8 @@ async def on_cb(event):
                 f"{real_line}"
                 f"{tok_lines}"
                 f"{conf_lines}"
+                f"{game_lines}"
+                f"{tip_lines}"
             )
             dash_url = os.getenv('RAILWAY_PUBLIC_DOMAIN', '')
             buttons = []
@@ -1230,17 +1302,27 @@ def build_summary(period="daily"):
         lines.append(f"📉 Μ.Ο. ημέρας:  **{avg}** claims")
         lines.append("")
 
-    # All-time confirmed (πραγματικά από Cosmobot)
+    # All-time income από όλες τις πηγές
     rc = stats.get("real_claims", 0)
     rf = stats.get("real_failed", 0)
     ctoks = stats.get("confirmed_tokens", {})
-    if rc > 0 or rf > 0 or ctoks:
-        lines.append("─ _all-time επιβεβαιωμένα_ ─")
+    gtoks = stats.get("game_tokens", {})
+    ttoks = stats.get("tip_tokens", {})
+    gw = stats.get("game_wins", 0)
+    tr = stats.get("tips_received", 0)
+    has_income = rc > 0 or rf > 0 or ctoks or gtoks or ttoks
+    if has_income:
+        lines.append("─ _all-time income_ ─")
         if rc > 0 or rf > 0:
-            lines.append(f"🎯 {rc} claims ✅  ·  {rf} χαμένα ❌")
-        if ctoks:
-            parts = [f"{_fmt_tok(v)} ${k}" for k, v in sorted(ctoks.items(), key=lambda x: -x[1])[:4]]
-            lines.append("💎 " + " · ".join(parts))
+            parts = [f"{_fmt_tok(v)} ${k}" for k, v in sorted(ctoks.items(), key=lambda x: -x[1])[:3]]
+            tok_str = (" — " + " · ".join(parts)) if parts else ""
+            lines.append(f"🎯 Giveaways: {rc}✅/{rf}❌{tok_str}")
+        if gtoks:
+            parts = [f"{_fmt_tok(v)} ${k}" for k, v in sorted(gtoks.items(), key=lambda x: -x[1])[:3]]
+            lines.append(f"🎮 Games ({gw}): " + " · ".join(parts))
+        if ttoks:
+            parts = [f"{_fmt_tok(v)} ${k}" for k, v in sorted(ttoks.items(), key=lambda x: -x[1])[:3]]
+            lines.append(f"🎁 Tips ({tr}): " + " · ".join(parts))
         lines.append("")
 
     lines.append("━━━━━━━━━━━━━━━━━━━━")

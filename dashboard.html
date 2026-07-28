@@ -96,7 +96,12 @@ a:hover { color:#c93e13; }
 .split .tok { padding:7px 0; border-bottom:1px solid var(--list); }
 .split .tok:last-child { border-bottom:none; }
 .split .tok .top { display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
-.split .tok .sym { font-size:13px; font-weight:700; }
+.split .tok .sym { font-size:13px; font-weight:700; display:inline-flex; align-items:center; gap:7px; }
+.tok-logo { width:18px; height:18px; border-radius:50%; vertical-align:middle; object-fit:contain; background:#fff; }
+.tok-fallback { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background:var(--ink); color:var(--card); font-size:7px; font-weight:700; letter-spacing:0.2px; }
+.bot .r .k .tok-logo, .bot .r .k .tok-fallback { width:15px; height:15px; }
+.bot .r .k .tok-fallback { font-size:6px; }
+.bot .r .k { display:inline-flex; align-items:center; gap:6px; }
 .split .tok .tot { font-size:16px; font-weight:700; color:var(--accent); }
 .split .tok .bd { font-size:10.5px; color:var(--dimmer); margin-top:2px; }
 .split .tok .tok-conf { font-size:10.5px; color:var(--ok); margin-top:3px; font-weight:400; }
@@ -288,6 +293,38 @@ function fmt(n){
   return n%1===0 ? String(n) : n.toFixed(2);
 }
 
+// Token logos — Cosmos chain-registry CDN (επίσημα, πάντα updated)
+// Fallback: αν αποτύχει, δείχνει το σύμβολο σε κύκλο (initials)
+const TOKEN_LOGOS = {
+  ATOM: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/cosmoshub/images/atom.png',
+  OSMO: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/osmosis/images/osmo.png',
+  NTRN: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/neutron/images/ntrn.png',
+  STRD: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/stride/images/strd.png',
+  TIA:  'https://raw.githubusercontent.com/cosmos/chain-registry/master/celestia/images/celestia.png',
+  INJ:  'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/inj.png',
+  JUNO: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/juno/images/juno.png',
+  AKT:  'https://raw.githubusercontent.com/cosmos/chain-registry/master/akash/images/akt.png',
+  SCRT: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/secretnetwork/images/scrt.png',
+  KUJI: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/kujira/images/kujira.png',
+  DYM:  'https://raw.githubusercontent.com/cosmos/chain-registry/master/dymension/images/dym.png',
+  SAGA: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/saga/images/saga.png',
+  WBTC: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/_non-cosmos/ethereum/images/wbtc.png',
+  USDC: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/noble/images/usdc.png',
+};
+
+function tokenIcon(sym){
+  const url = TOKEN_LOGOS[sym.toUpperCase()];
+  const initial = esc(sym.slice(0,3).toUpperCase());
+  // Fallback div (initials σε κύκλο) που εμφανίζεται αν η εικόνα αποτύχει
+  const fallback = `<span class="tok-fallback">${initial}</span>`;
+  if(url){
+    return `<img class="tok-logo" src="${url}" alt="${esc(sym)}" `
+         + `onerror="this.outerHTML='${fallback.replace(/'/g,"\\'")}'" />`;
+  }
+  return fallback;
+}
+
+
 async function J(base, path){
   if(!base) return null;
   try{
@@ -379,7 +416,7 @@ function render(s1, s2, a1, a2){
     const tokens = st.tokens || {};
     const tokKeys = Object.keys(tokens).sort((a,b) => tokens[b] - tokens[a]);
     const tokRows = tokKeys.map(k =>
-      `<div class="r"><span class="k">$${esc(k)} claimed</span><span class="v">${fmt(tokens[k])}</span></div>`
+      `<div class="r"><span class="k">${tokenIcon(k)} ${esc(k)} claimed</span><span class="v">${fmt(tokens[k])}</span></div>`
     ).join('');
     // Confirmed (πραγματικά από Cosmobot)
     const rc = st.real_claims || 0;
@@ -390,7 +427,7 @@ function render(s1, s2, a1, a2){
     if (rc > 0 || rf > 0 || ctokKeys.length > 0) {
       const confRate = (rc + rf) > 0 ? Math.round(rc / (rc + rf) * 100) : 0;
       const ctokRows = ctokKeys.map(k =>
-        `<div class="r"><span class="k">$${esc(k)} confirmed</span><span class="v acc">${fmt(ctokens[k])}</span></div>`
+        `<div class="r"><span class="k">${tokenIcon(k)} ${esc(k)} confirmed</span><span class="v acc">${fmt(ctokens[k])}</span></div>`
       ).join('');
       confirmedBlock = `
         <div class="conf-divider">confirmed by cosmobot</div>
@@ -402,6 +439,34 @@ function render(s1, s2, a1, a2){
     }
     const upTxt = b.online ? '[ ONLINE ]' : '[ OFFLINE ]';
     const upCls = b.online ? '' : 'off';
+    // Game rewards block
+    const gtokens = st.game_tokens || {};
+    const gtokKeys = Object.keys(gtokens).sort((a,b) => gtokens[b] - gtokens[a]);
+    const gw = st.game_wins || 0;
+    let gameBlock = '';
+    if (gw > 0 || gtokKeys.length > 0) {
+      const gtokRows = gtokKeys.map(k =>
+        `<div class="r"><span class="k">${tokenIcon(k)} ${esc(k)} won</span><span class="v acc">${fmt(gtokens[k])}</span></div>`
+      ).join('');
+      gameBlock = `
+        <div class="conf-divider">🎮 minigames (${gw} wins)</div>
+        ${gtokRows}
+      `;
+    }
+    // Tips block
+    const ttokens = st.tip_tokens || {};
+    const ttokKeys = Object.keys(ttokens).sort((a,b) => ttokens[b] - ttokens[a]);
+    const tr = st.tips_received || 0;
+    let tipBlock = '';
+    if (tr > 0 || ttokKeys.length > 0) {
+      const ttokRows = ttokKeys.map(k =>
+        `<div class="r"><span class="k">${tokenIcon(k)} ${esc(k)} tips</span><span class="v acc">${fmt(ttokens[k])}</span></div>`
+      ).join('');
+      tipBlock = `
+        <div class="conf-divider">🎁 tips (${tr})</div>
+        ${ttokRows}
+      `;
+    }
     return `
       <div class="bot">
         <div class="top">
@@ -416,6 +481,8 @@ function render(s1, s2, a1, a2){
         <div class="r"><span class="k">Fastest reaction</span><span class="v acc">${fastTxt}</span></div>
         ${tokRows}
         ${confirmedBlock}
+        ${gameBlock}
+        ${tipBlock}
       </div>
     `;
   }).join('');
@@ -482,7 +549,7 @@ function render(s1, s2, a1, a2){
       return `
         <div class="tok">
           <div class="top">
-            <span class="sym">$${esc(k)}</span>
+            <span class="sym">${tokenIcon(k)} ${esc(k)}</span>
             <span class="tot">${fmt(total)}</span>
           </div>
           <div class="bd">${bd}</div>
