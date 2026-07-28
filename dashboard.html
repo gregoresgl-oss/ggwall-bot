@@ -82,6 +82,7 @@ a:hover { color:#c93e13; }
 .bot .r .k { font-size:12.5px; text-transform:uppercase; }
 .bot .r .v { font-size:15px; font-weight:700; white-space:nowrap; }
 .bot .r .v.acc { color:var(--accent); }
+.bot .conf-divider { font-size:10px; text-transform:uppercase; letter-spacing:1px; color:var(--dim); margin:12px 0 6px; padding-top:10px; border-top:2px solid var(--ink); }
 
 /* Split section */
 .split { display:grid; grid-template-columns:1fr 1fr; border-bottom:3px solid var(--ink); }
@@ -98,6 +99,8 @@ a:hover { color:#c93e13; }
 .split .tok .sym { font-size:13px; font-weight:700; }
 .split .tok .tot { font-size:16px; font-weight:700; color:var(--accent); }
 .split .tok .bd { font-size:10.5px; color:var(--dimmer); margin-top:2px; }
+.split .tok .tok-conf { font-size:10.5px; color:var(--ok); margin-top:3px; font-weight:400; }
+.split .tok .tok-conf b { font-weight:700; }
 .split .empty { font-size:12px; color:var(--dimmer); padding:8px 0; }
 
 /* Activity log */
@@ -343,9 +346,18 @@ function render(s1, s2, a1, a2){
     ? `${esc(BOT1_NAME)} ${v1} / ${esc(BOT2_NAME)} ${v2}`
     : `${esc(BOT1_NAME)} ${v1}`;
   document.getElementById('k-sig-sub').innerHTML = subOf(s1?.total_alerts||0, s2?.total_alerts||0);
-  document.getElementById('k-cla-sub').innerHTML = subOf(s1?.successful_clicks||0, s2?.successful_clicks||0);
   document.getElementById('k-cli-sub').innerHTML = subOf(s1?.total_clicks||0, s2?.total_clicks||0);
   document.getElementById('k-mis-sub').innerHTML = subOf(s1?.failed_clicks||0, s2?.failed_clicks||0);
+
+  // Claims KPI: αν έχουμε confirmed data, δείξε "X real / Y failed"
+  const totalReal = (s1?.real_claims||0) + (s2?.real_claims||0);
+  const totalRealFail = (s1?.real_failed||0) + (s2?.real_failed||0);
+  if (totalReal > 0 || totalRealFail > 0) {
+    document.getElementById('k-cla-sub').innerHTML =
+      `<span style="color:var(--accent)">${totalReal} real</span> / ${totalRealFail} failed`;
+  } else {
+    document.getElementById('k-cla-sub').innerHTML = subOf(s1?.successful_clicks||0, s2?.successful_clicks||0);
+  }
 
   // Bot comparison
   const bots = [{ name: BOT1_NAME, stats: s1, online: s1!=null }];
@@ -369,6 +381,25 @@ function render(s1, s2, a1, a2){
     const tokRows = tokKeys.map(k =>
       `<div class="r"><span class="k">$${esc(k)} claimed</span><span class="v">${fmt(tokens[k])}</span></div>`
     ).join('');
+    // Confirmed (πραγματικά από Cosmobot)
+    const rc = st.real_claims || 0;
+    const rf = st.real_failed || 0;
+    const ctokens = st.confirmed_tokens || {};
+    const ctokKeys = Object.keys(ctokens).sort((a,b) => ctokens[b] - ctokens[a]);
+    let confirmedBlock = '';
+    if (rc > 0 || rf > 0 || ctokKeys.length > 0) {
+      const confRate = (rc + rf) > 0 ? Math.round(rc / (rc + rf) * 100) : 0;
+      const ctokRows = ctokKeys.map(k =>
+        `<div class="r"><span class="k">$${esc(k)} confirmed</span><span class="v acc">${fmt(ctokens[k])}</span></div>`
+      ).join('');
+      confirmedBlock = `
+        <div class="conf-divider">confirmed by cosmobot</div>
+        <div class="r"><span class="k">Real claims</span><span class="v acc">${rc}</span></div>
+        <div class="r"><span class="k">Real failed</span><span class="v">${rf}</span></div>
+        <div class="r"><span class="k">Success rate</span><span class="v">${confRate}%</span></div>
+        ${ctokRows}
+      `;
+    }
     const upTxt = b.online ? '[ ONLINE ]' : '[ OFFLINE ]';
     const upCls = b.online ? '' : 'off';
     return `
@@ -384,6 +415,7 @@ function render(s1, s2, a1, a2){
         <div class="r"><span class="k">Hit rate</span><span class="v">${hitRate}%</span></div>
         <div class="r"><span class="k">Fastest reaction</span><span class="v acc">${fastTxt}</span></div>
         ${tokRows}
+        ${confirmedBlock}
       </div>
     `;
   }).join('');
@@ -420,6 +452,13 @@ function render(s1, s2, a1, a2){
   for(const [k, v] of Object.entries(MANUAL_TOKENS)){
     combTokens[k] = (combTokens[k]||0) + v;
   }
+  // Confirmed tokens (combined)
+  const combConfirmed = {};
+  for(const src of [(s1?.confirmed_tokens||{}), (s2?.confirmed_tokens||{})]){
+    for(const [k,v] of Object.entries(src)){
+      combConfirmed[k] = (combConfirmed[k]||0) + v;
+    }
+  }
   const tokKeys = Object.keys(combTokens).sort((a,b) => combTokens[b] - combTokens[a]);
   const tokEl = document.getElementById('token-list');
   if(tokKeys.length === 0){
@@ -430,11 +469,16 @@ function render(s1, s2, a1, a2){
       const v1 = perBotTokens.b1[k] || 0;
       const v2 = perBotTokens.b2[k] || 0;
       const manual = MANUAL_TOKENS[k] || 0;
+      const confirmed = combConfirmed[k] || 0;
       let bdParts = [];
       bdParts.push(`${esc(BOT1_NAME)} ${fmt(v1)}`);
       if(dual) bdParts.push(`${esc(BOT2_NAME)} ${fmt(v2)}`);
       if(manual > 0) bdParts.push(`Manual ${fmt(manual)}`);
       const bd = bdParts.join(' · ');
+      // Confirmed badge αν υπάρχει
+      const confBadge = confirmed > 0
+        ? `<div class="tok-conf">✓ confirmed: <b>${fmt(confirmed)}</b></div>`
+        : '';
       return `
         <div class="tok">
           <div class="top">
@@ -442,6 +486,7 @@ function render(s1, s2, a1, a2){
             <span class="tot">${fmt(total)}</span>
           </div>
           <div class="bd">${bd}</div>
+          ${confBadge}
         </div>
       `;
     }).join('');
