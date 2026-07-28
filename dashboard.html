@@ -97,10 +97,11 @@ a:hover { color:#c93e13; }
 .split .tok:last-child { border-bottom:none; }
 .split .tok .top { display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
 .split .tok .sym { font-size:13px; font-weight:700; display:inline-flex; align-items:center; gap:7px; }
+.tok-ic { display:inline-flex; align-items:center; }
 .tok-logo { width:18px; height:18px; border-radius:50%; vertical-align:middle; object-fit:contain; background:#fff; }
-.tok-fallback { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background:var(--ink); color:var(--card); font-size:7px; font-weight:700; letter-spacing:0.2px; }
+.tok-fallback { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background:var(--ink); color:var(--card); font-size:6px; font-weight:700; letter-spacing:0.2px; }
 .bot .r .k .tok-logo, .bot .r .k .tok-fallback { width:15px; height:15px; }
-.bot .r .k .tok-fallback { font-size:6px; }
+.bot .r .k .tok-fallback { font-size:5px; }
 .bot .r .k { display:inline-flex; align-items:center; gap:6px; }
 .split .tok .tot { font-size:16px; font-weight:700; color:var(--accent); }
 .split .tok .bd { font-size:10.5px; color:var(--dimmer); margin-top:2px; }
@@ -313,15 +314,17 @@ const TOKEN_LOGOS = {
 };
 
 function tokenIcon(sym){
+  const S = esc(sym.toUpperCase());
   const url = TOKEN_LOGOS[sym.toUpperCase()];
-  const initial = esc(sym.slice(0,3).toUpperCase());
-  // Fallback div (initials σε κύκλο) που εμφανίζεται αν η εικόνα αποτύχει
-  const fallback = `<span class="tok-fallback">${initial}</span>`;
+  const initial = esc(sym.slice(0,4).toUpperCase());
   if(url){
-    return `<img class="tok-logo" src="${url}" alt="${esc(sym)}" `
-         + `onerror="this.outerHTML='${fallback.replace(/'/g,"\\'")}'" />`;
+    // img με fallback: αν αποτύχει, κρύβεται και εμφανίζεται το span δίπλα του
+    return `<span class="tok-ic">`
+         + `<img class="tok-logo" src="${url}" alt="${S}" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" />`
+         + `<span class="tok-fallback" style="display:none;">${initial}</span>`
+         + `</span>`;
   }
-  return fallback;
+  return `<span class="tok-fallback">${initial}</span>`;
 }
 
 
