@@ -11,6 +11,7 @@ import copy
 import json
 import time
 import re
+import random
 import logging
 from pathlib import Path
 from aiohttp import web
@@ -59,11 +60,10 @@ DEFAULT_SETTINGS = {
     "detect_keywords": ["giveaway", "claim", "airdrop", "prize", "winner", "reward", "free", "drop", "distribution", "raffle", "contest"],
     "owner_id": None,
     "auto_detect": True,  # ανίχνευση νέων καναλιών
-    "smart_delay": True,  # έξυπνη καθυστέρηση βάσει ποσού
-    "delay_tiny": 10.0,   # < 0.5 token/χρήστη → 10s
-    "delay_small": 5.0,   # 0.5-1 token/χρήστη → 5s
-    "delay_good": 0.0,    # ≥ 1 token/χρήστη → 0s (αμέσως by default)
-    "delay_many_people": 2.0  # +2s αν 20+ χρήστες
+    "smart_delay": True,       # human jitter + capacity safety
+    "jitter_min": 8.0,         # ελάχιστο random delay πριν το claim
+    "jitter_max": 15.0,        # μέγιστο random delay
+    "capacity_threshold": 70   # % πληρότητας → πάτα ΤΩΡΑ (ασφάλεια)
 }
 
 DEFAULT_STATS = {
@@ -248,42 +248,70 @@ def extract_token(msg_text):
     return None, None
 
 
-# Πιάνει "to 40 people", "to 2 people"
-PEOPLE_RE = re.compile(r'to\s+(\d+)\s+people', re.IGNORECASE)
+# Πιάνει counter σε button: "Claim 8/50", "Join 12/100"
+COUNTER_RE = re.compile(r'(\d+)\s*/\s*(\d+)')
 
-def extract_people(msg_text):
-    """Βρίσκει πόσοι χρήστες μπορούν να κάνουν claim"""
-    if not msg_text:
-        return None
-    m = PEOPLE_RE.search(msg_text)
+
+def parse_counter(button_text):
+    """Από 'Claim 8/50' επιστρέφει (8, 50). Αλλιώς (None, None)."""
+    if not button_text:
+        return None, None
+    m = COUNTER_RE.search(button_text)
     if m:
         try:
-            return int(m.group(1))
+            return int(m.group(1)), int(m.group(2))
         except:
-            return None
-    return None
+            return None, None
+    return None, None
 
 
-def calc_delay(amount, people):
+def pick_jitter_delay():
+    """Επιστρέφει ένα τυχαίο delay μέσα στο ρυθμισμένο range (human-like)."""
+    lo = settings.get("jitter_min", 8.0)
+    hi = settings.get("jitter_max", 15.0)
+    if hi < lo:
+        lo, hi = hi, lo
+    return round(random.uniform(lo, hi), 2)
+
+
+async def smart_wait_and_check(chat_id, msg_id, target_delay, button_index):
     """
-    Υπολογίζει πόσα δευτερόλεπτα να περιμένει πριν το claim.
-    Λογική:
-    - Μικρό ποσό ανά χρήστη → περίμενε περισσότερο
-    - Πολλοί χρήστες → περίμενε λίγο ακόμα (γεμίζει πιο αργά)
+    Περιμένει μέχρι target_delay ΑΛΛΑ ελέγχει τον counter κάθε ~1s.
+    Αν η πληρότητα φτάσει το capacity_threshold %, επιστρέφει νωρίτερα.
+    Επιστρέφει: (πραγματικός_χρόνος_αναμονής, reason)
+      reason: 'timer' (πέρασε ο χρόνος) | 'capacity' (danger zone) | 'error'
     """
-    delay = 0
-    # Βάσει ποσού
-    if amount is not None:
-        if amount < 0.5:
-            delay = settings.get("delay_tiny", 10.0)    # πολύ μικρό
-        elif amount < 1.0:
-            delay = settings.get("delay_small", 5.0)    # μικρό
-        else:
-            delay = settings.get("delay_good", 0.0)     # καλό (default 0s = αμέσως)
-    # Extra delay αν πολλοί χρήστες (γεμίζει αργά, έχεις χρόνο)
-    if people is not None and people >= 20 and delay > 0:
-        delay += settings.get("delay_many_people", 2.0)
-    return delay
+    threshold = settings.get("capacity_threshold", 70)
+    waited = 0.0
+    step = 1.0
+    while waited < target_delay:
+        sleep_now = min(step, target_delay - waited)
+        await asyncio.sleep(sleep_now)
+        waited += sleep_now
+        # Re-fetch το μήνυμα για να δούμε τον νέο counter
+        try:
+            fresh = await user_client.get_messages(chat_id, ids=msg_id)
+            if fresh and fresh.buttons:
+                # Βρες το ίδιο button (ίδιο index αν γίνεται)
+                cur = tot = None
+                flat = [b for row in fresh.buttons for b in row]
+                if 0 <= button_index < len(flat):
+                    cur, tot = parse_counter(flat[button_index].text)
+                if cur is None:
+                    # fallback: ψάξε οποιοδήποτε button με counter
+                    for b in flat:
+                        cur, tot = parse_counter(b.text)
+                        if cur is not None:
+                            break
+                if cur is not None and tot and tot > 0:
+                    pct = cur / tot * 100
+                    if pct >= threshold:
+                        return round(waited, 2), "capacity"
+        except Exception as e:
+            logger.debug(f"Counter check: {e}")
+    return round(waited, 2), "timer"
+
+
 
 async def check_new_channels(msg_text, chat_title=None, chat_username=None):
     """Ψάχνει links για νέα κανάλια στο μήνυμα (μόνο με giveaway context)."""
@@ -464,25 +492,34 @@ async def on_msg(event):
         # Auto-click
         clicked = False; ctime = ""
         if settings.get("auto_click", False) and found_btn:
-            # Smart delay: κλιμακωτή καθυστέρηση βάσει ποσού + αριθμού χρηστών
-            delay_applied = 0
+            # Human jitter + capacity safety check
+            wait_reason = "instant"
+            waited_time = 0.0
             if settings.get("smart_delay", True):
-                tok_amt, tok_sym = extract_token(msg_text)
-                ppl = extract_people(msg_text)
-                delay_applied = calc_delay(tok_amt, ppl)
-                if delay_applied > 0:
-                    logger.info(f"💤 Delay {delay_applied}s (amount:{tok_amt} {tok_sym}, people:{ppl})")
-                    await asyncio.sleep(delay_applied)
+                target = pick_jitter_delay()
+                # Βρες το index του button (για re-check)
+                btn_idx = 0
+                try:
+                    flat_orig = [bb for row in event.message.buttons for bb in row]
+                    btn_idx = flat_orig.index(found_btn[0])
+                except Exception:
+                    btn_idx = 0
+                logger.info(f"💤 Jitter target {target}s (capacity check @ {settings.get('capacity_threshold',70)}%)")
+                waited_time, wait_reason = await smart_wait_and_check(
+                    event.chat_id, event.message.id, target, btn_idx
+                )
+                if wait_reason == "capacity":
+                    logger.info(f"⚡ Capacity danger! Πάτησα στα {waited_time}s (γέμιζε)")
+                else:
+                    logger.info(f"⏱️ Timer πέρασε στα {waited_time}s")
+
             for b in found_btn:
                 try:
                     t1 = time.time()
-                    # Το Cosmobot συχνά δεν στέλνει callback answer,
-                    # οπότε το b.click() θα κάτσει να περιμένει ~15s timeout.
-                    # Κόβουμε στα 2s: το click έχει ήδη σταλεί, δεν χρειάζεται να περιμένουμε.
                     try:
                         await asyncio.wait_for(b.click(), timeout=2.0)
                     except asyncio.TimeoutError:
-                        pass  # Click στάλθηκε, απλά δεν πήραμε response
+                        pass
                     el = round(time.time() - t1, 2)
                     ctime = f"{el}s"
                     clicked = True
@@ -490,20 +527,20 @@ async def on_msg(event):
                     stats["successful_clicks"] = stats.get("successful_clicks", 0) + 1
                     if stats.get("fastest_click") is None or el < stats["fastest_click"]:
                         stats["fastest_click"] = el
-                    # Track tokens claimed
                     tok_amt, tok_sym = extract_token(msg_text)
                     if tok_amt and tok_sym:
                         stats.setdefault("tokens", {})
                         stats["tokens"][tok_sym] = round(stats["tokens"].get(tok_sym, 0) + tok_amt, 4)
                     bump_daily("claim", tok_sym, tok_amt)
                     save_stats(stats)
-                    # Notification που δείχνει και το delay που εφαρμόστηκε
-                    if delay_applied > 0:
-                        notif = f"✅ Auto-click: **{b.text}**  `(waited {delay_applied:g}s + click {ctime})`"
+                    # Notification
+                    if waited_time > 0:
+                        tag = "⚡ γέμιζε!" if wait_reason == "capacity" else "🎲 jitter"
+                        notif = f"✅ Auto-click: **{b.text}**  `({tag} {waited_time:g}s + click {ctime})`"
                     else:
                         notif = f"✅ Auto-click: **{b.text}**  `(instant + click {ctime})`"
                     await bot_client.send_message(owner_id, notif, link_preview=False)
-                    logger.info(f"🖱️ Clicked: {b.text} · delay={delay_applied}s · click={ctime}")
+                    logger.info(f"🖱️ Clicked: {b.text} · waited={waited_time}s ({wait_reason}) · click={ctime}")
                 except Exception as e:
                     stats["total_clicks"] = stats.get("total_clicks", 0) + 1
                     stats["failed_clicks"] = stats.get("failed_clicks", 0) + 1
@@ -528,12 +565,12 @@ def menu_buttons():
     ac = "🟢" if settings.get("auto_click") else "🔴"
     bo = "🟢" if settings.get("buttons_only") else "🔴"
     ad = "🟢" if settings.get("auto_detect") else "🔴"
-    # Smart-delay: κλειδωμένο αν Auto-click OFF (δεν χρησιμοποιείται)
+    # Human Mode (jitter): κλειδωμένο αν Auto-click OFF
     if settings.get("auto_click"):
         sd = "🟢" if settings.get("smart_delay") else "🔴"
-        sd_label = f"💤 Smart-delay {sd}"
+        sd_label = f"🎲 Human Mode {sd}"
     else:
-        sd_label = "💤 Smart-delay 🔒"
+        sd_label = "🎲 Human Mode 🔒"
     # Λέξεις (text): κλειδωμένο αν Buttons Only ON (αγνοούνται)
     if settings.get("buttons_only"):
         kw_label = "📋 Λέξεις 🔒"
@@ -546,7 +583,7 @@ def menu_buttons():
         [Button.inline("📊 Στατιστικά", b"stats")],
         [Button.inline(f"⚡ Auto-click {ac}", b"toggle_ac"), Button.inline(f"🎯 Μόνο κουμπιά {bo}", b"toggle_bo")],
         [Button.inline(f"🆕 Auto-detect {ad}", b"toggle_ad"), Button.inline(sd_label, b"toggle_sd")],
-        [Button.inline("⏱️ Ρυθμίσεις καθυστέρησης", b"delays")],
+        [Button.inline("🎲 Ρυθμίσεις Human Mode", b"delays")],
     ]
     dash = os.getenv('RAILWAY_PUBLIC_DOMAIN', '')
     if dash:
@@ -571,27 +608,23 @@ def build_submenu(kind):
     """Επιστρέφει (text, buttons) για ένα από τα sub-menus.
     Χρησιμοποιείται και από τον callback handler και μετά από save στο on_text."""
     if kind == "delays":
-        dt = settings.get("delay_tiny", 10.0)
-        ds = settings.get("delay_small", 5.0)
-        dg = settings.get("delay_good", 0.0)
-        dp = settings.get("delay_many_people", 2.0)
-        good_txt = f"**{dg:g}s**" if dg > 0 else "**0s** (αμέσως)"
+        jmin = settings.get("jitter_min", 8.0)
+        jmax = settings.get("jitter_max", 15.0)
+        cap = settings.get("capacity_threshold", 70)
         text = (
-            "⏱️ **Ρυθμίσεις Καθυστέρησης**\n"
+            "🎲 **Human Mode — Καθυστέρηση**\n"
             "─────────────────────\n\n"
-            "Πόσο περιμένει πριν το claim,\n"
-            "βάσει ποσού ανά χρήστη:\n\n"
-            f"🐌 **Πολύ μικρό** `< 0.5`  →  **{dt:g}s**\n"
-            f"🚶 **Μικρό** `0.5–1`  →  **{ds:g}s**\n"
-            f"⚡ **Καλό** `≥ 1`  →  {good_txt}\n\n"
-            f"➕ **Bonus** αν 20+ άτομα  →  **+{dp:g}s**\n\n"
+            "Το bot περιμένει έναν **τυχαίο** χρόνο\n"
+            "πριν το claim, για να μη φαίνεται bot:\n\n"
+            f"🎲 **Jitter range:**  `{jmin:g}s – {jmax:g}s`\n"
+            f"⚡ **Safety check:**  αν γεμίσει **{cap}%**,\n"
+            "     πατάει ΑΜΕΣΩΣ (να μη χάσει το claim)\n\n"
             "_Πάτησε για αλλαγή:_"
         )
         btns = [
-            [Button.inline(f"🐌 Πολύ μικρό: {dt:g}s", b"set_tiny")],
-            [Button.inline(f"🚶 Μικρό: {ds:g}s", b"set_small")],
-            [Button.inline(f"⚡ Καλό: {dg:g}s", b"set_good")],
-            [Button.inline(f"➕ Bonus πολλών: {dp:g}s", b"set_many")],
+            [Button.inline(f"🎲 Min: {jmin:g}s", b"set_jmin"),
+             Button.inline(f"🎲 Max: {jmax:g}s", b"set_jmax")],
+            [Button.inline(f"⚡ Safety: {cap}%", b"set_cap")],
             [Button.inline("← Πίσω", b"back")]
         ]
         return text, btns
@@ -645,10 +678,9 @@ def build_submenu(kind):
 
 # Mapping από text-input state → submenu που πρέπει να ξαναεμφανιστεί μετά το save
 STATE_TO_SUBMENU = {
-    "SET_TINY": "delays",
-    "SET_SMALL": "delays",
-    "SET_GOOD": "delays",
-    "SET_MANY": "delays",
+    "SET_JMIN": "delays",
+    "SET_JMAX": "delays",
+    "SET_CAP": "delays",
     "ADD_KW": "keywords",
     "ADD_CH": "channels",
     "ADD_CW": "clickwords",
@@ -792,18 +824,15 @@ async def on_cb(event):
             text, btns = build_submenu("delays")
             await event.edit(text, buttons=btns)
 
-        elif data == "set_tiny":
-            user_states[event.sender_id] = "SET_TINY"
-            await event.edit("⏱️ Γράψε δευτερόλεπτα για **πολύ μικρά** ποσά (< 0.5):\n\n_π.χ. 15_")
-        elif data == "set_small":
-            user_states[event.sender_id] = "SET_SMALL"
-            await event.edit("⏱️ Γράψε δευτερόλεπτα για **μικρά** ποσά (0.5–1):\n\n_π.χ. 5_")
-        elif data == "set_good":
-            user_states[event.sender_id] = "SET_GOOD"
-            await event.edit("⏱️ Γράψε δευτερόλεπτα για **καλά** ποσά (≥ 1):\n\n_0 = αμέσως · π.χ. 3_")
-        elif data == "set_many":
-            user_states[event.sender_id] = "SET_MANY"
-            await event.edit("⏱️ Γράψε extra δευτερόλεπτα για **20+ άτομα**:\n\n_π.χ. 2_")
+        elif data == "set_jmin":
+            user_states[event.sender_id] = "SET_JMIN"
+            await event.edit("🎲 Γράψε το **ελάχιστο** delay (δευτ/πτα):\n\n_π.χ. 8_")
+        elif data == "set_jmax":
+            user_states[event.sender_id] = "SET_JMAX"
+            await event.edit("🎲 Γράψε το **μέγιστο** delay (δευτ/πτα):\n\n_π.χ. 15_")
+        elif data == "set_cap":
+            user_states[event.sender_id] = "SET_CAP"
+            await event.edit("⚡ Γράψε το **safety threshold** (%):\n\n_Αν γεμίσει τόσο %, πατάει αμέσως._\n_π.χ. 70_")
 
         elif data == "refresh":
             await event.edit("🔄 Ανανέωση...")
@@ -921,24 +950,38 @@ async def on_text(event):
                 confirm_msg = f"✅ Detect keyword: **{c}**"; changed = True
             else:
                 confirm_msg = "⚠️ Υπάρχει"
-        elif st in ("SET_TINY", "SET_SMALL", "SET_GOOD", "SET_MANY"):
+        elif st in ("SET_JMIN", "SET_JMAX"):
             try:
                 val = float(t.replace(",", ".").strip())
                 if val < 0 or val > 120:
                     confirm_msg = "⚠️ Βάλε αριθμό 0-120"
                 else:
-                    key = {
-                        "SET_TINY": "delay_tiny",
-                        "SET_SMALL": "delay_small",
-                        "SET_GOOD": "delay_good",
-                        "SET_MANY": "delay_many_people"
-                    }[st]
+                    key = "jitter_min" if st == "SET_JMIN" else "jitter_max"
                     settings[key] = val
+                    # Auto-fix: αν min > max, αντάλλαξέ τα
+                    jmin = settings.get("jitter_min", 8.0)
+                    jmax = settings.get("jitter_max", 15.0)
+                    if jmin > jmax:
+                        settings["jitter_min"], settings["jitter_max"] = jmax, jmin
+                        confirm_msg = f"✅ Ρυθμίστηκε: **{val:g}s** _(διόρθωσα min/max σειρά)_"
+                    else:
+                        confirm_msg = f"✅ Ρυθμίστηκε: **{val:g}s**"
                     save_settings(settings)
-                    confirm_msg = f"✅ Ρυθμίστηκε: **{val:g}s**"
                     changed = True
             except ValueError:
                 confirm_msg = "⚠️ Βάλε έγκυρο αριθμό (π.χ. 10)"
+        elif st == "SET_CAP":
+            try:
+                val = int(float(t.replace(",", ".").strip()))
+                if val < 10 or val > 100:
+                    confirm_msg = "⚠️ Βάλε ποσοστό 10-100"
+                else:
+                    settings["capacity_threshold"] = val
+                    save_settings(settings)
+                    confirm_msg = f"✅ Safety threshold: **{val}%**"
+                    changed = True
+            except ValueError:
+                confirm_msg = "⚠️ Βάλε έγκυρο αριθμό (π.χ. 70)"
 
         # Στείλε επιβεβαίωση και ΞΑΝΑ το menu (για να μη χρειάζεται /start)
         menu_kind = STATE_TO_SUBMENU.get(st)
