@@ -73,7 +73,10 @@ DEFAULT_STATS = {
     "failed_clicks": 0,
     "fastest_click": None,
     "channels_detected": [],
-    "tokens": {},
+    "tokens": {},          # tokens βάσει giveaway message (estimate)
+    "confirmed_tokens": {},# tokens επιβεβαιωμένα από Cosmobot (πραγματικά)
+    "real_claims": 0,      # επιβεβαιωμένες επιτυχίες από Cosmobot
+    "real_failed": 0,      # επιβεβαιωμένες αποτυχίες από Cosmobot
     "daily": {}  # {"2026-07-27": {"alerts": 5, "claims": 4, "tokens": {"ATOM": 1.2}}}
 }
 
@@ -380,6 +383,82 @@ async def check_new_channels(msg_text, chat_title=None, chat_username=None):
             logger.info(f"🆕 New channel: {clean} (reason: {reason})")
     except Exception as e:
         logger.error(f"Detect error: {e}")
+
+# ============ COSMOBOT CONFIRMATION TRACKING ============
+# Regex για parse του confirmed amount: "claimed a giveaway of 0.2 $ATOM"
+CONFIRM_AMOUNT_RE = re.compile(r'giveaway of\s+([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})', re.IGNORECASE)
+# Regex για requirements: "Required: 22,500 $ATOM"
+REQUIRED_RE = re.compile(r'Required:\s*([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})', re.IGNORECASE)
+# Regex για aggregate: "Your aggregate: 1,237.74 $ATOM"
+AGGREGATE_RE = re.compile(r'aggregate:\s*([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})', re.IGNORECASE)
+
+@user_client.on(events.NewMessage(from_users='ibc_cosmobot'))
+async def on_cosmobot_dm(event):
+    """Ακούει τα confirmation DMs από το Cosmobot για πραγματικά αποτελέσματα."""
+    global stats
+    try:
+        if not owner_id:
+            return
+        text = event.message.text or ""
+        tl = text.lower()
+
+        # ✅ ΕΠΙΤΥΧΙΑ
+        if "successfully claimed" in tl:
+            m = CONFIRM_AMOUNT_RE.search(text)
+            amt, sym = None, None
+            if m:
+                try:
+                    amt = float(m.group(1).replace(",", ""))
+                    sym = m.group(2).upper()
+                except Exception:
+                    pass
+            stats["real_claims"] = stats.get("real_claims", 0) + 1
+            if amt and sym:
+                stats.setdefault("confirmed_tokens", {})
+                stats["confirmed_tokens"][sym] = round(stats["confirmed_tokens"].get(sym, 0) + amt, 4)
+            save_stats(stats)
+            if amt and sym:
+                await bot_client.send_message(owner_id,
+                    f"✅ **Επιβεβαιωμένο!**\n\nΠήρες **{amt:g} ${sym}** 🎉", link_preview=False)
+            logger.info(f"✅ Confirmed claim: {amt} {sym}")
+
+        # ❌ ΑΠΟΤΥΧΙΑ — Requirements
+        elif "don't meet the requirements" in tl or "do not meet the requirements" in tl:
+            req = REQUIRED_RE.search(text)
+            agg = AGGREGATE_RE.search(text)
+            stats["real_failed"] = stats.get("real_failed", 0) + 1
+            save_stats(stats)
+            req_txt = ""
+            if req and agg:
+                try:
+                    req_amt = float(req.group(1).replace(",", ""))
+                    req_sym = req.group(2).upper()
+                    agg_amt = float(agg.group(1).replace(",", ""))
+                    req_txt = f"\n\n📊 Χρειάζεται: **{req_amt:,.0f} ${req_sym}** staked\n💼 Έχεις: **{agg_amt:,.2f} ${req_sym}**"
+                except Exception:
+                    pass
+            await bot_client.send_message(owner_id,
+                f"❌ **Έχασες giveaway** (elite){req_txt}\n\n_Δεν πληροίς τα wallet requirements._",
+                link_preview=False)
+            logger.info(f"❌ Failed claim (requirements)")
+
+        # ⚠️ Ήδη claimed
+        elif "already claimed" in tl:
+            stats["real_failed"] = stats.get("real_failed", 0) + 1
+            save_stats(stats)
+            logger.info("⚠️ Already claimed")
+
+        # ⏰ Πολύ αργά / γεμάτο
+        elif "already ended" in tl or "giveaway has ended" in tl or "fully claimed" in tl or "no longer available" in tl:
+            stats["real_failed"] = stats.get("real_failed", 0) + 1
+            save_stats(stats)
+            await bot_client.send_message(owner_id,
+                "⏰ **Άργησες** — το giveaway τελείωσε ή γέμισε.", link_preview=False)
+            logger.info("⏰ Giveaway ended/full")
+
+    except Exception as e:
+        logger.error(f"Cosmobot DM: {e}")
+
 
 # ============ MONITORING ============
 @user_client.on(events.NewMessage())
@@ -762,14 +841,28 @@ async def on_cb(event):
                 wr = round(stats.get("successful_clicks", 0) / stats["total_clicks"] * 100)
             fc = stats.get("fastest_click")
             fc_txt = f"{fc}s" if fc else "—"
-            # Tokens summary
+            # Tokens summary (estimate)
             toks = stats.get("tokens", {})
             tok_lines = ""
             if toks:
                 sorted_toks = sorted(toks.items(), key=lambda x: -x[1])
-                tok_lines = "\n\n💰 **Tokens:**\n" + "\n".join(
+                tok_lines = "\n\n💰 **Tokens (est.):**\n" + "\n".join(
                     f"  • {v:g} ${k}" for k, v in sorted_toks[:8]
                 )
+            # Confirmed tokens (πραγματικά από Cosmobot)
+            ctoks = stats.get("confirmed_tokens", {})
+            conf_lines = ""
+            if ctoks:
+                sorted_ctoks = sorted(ctoks.items(), key=lambda x: -x[1])
+                conf_lines = "\n\n✅ **Επιβεβαιωμένα:**\n" + "\n".join(
+                    f"  • {v:g} ${k}" for k, v in sorted_ctoks[:8]
+                )
+            # Real claim line (μόνο αν έχουμε δεδομένα)
+            real_line = ""
+            rc = stats.get("real_claims", 0)
+            rf = stats.get("real_failed", 0)
+            if rc > 0 or rf > 0:
+                real_line = f"\n🎯 **Επιβεβαιωμένα:**  {rc} ✅ · {rf} ❌"
             text = (
                 "📊 **Στατιστικά**\n─────────────────────\n\n"
                 f"🔔 **Alerts:**  {stats.get('total_alerts', 0)}\n"
@@ -778,7 +871,9 @@ async def on_cb(event):
                 f"❌ **Αποτυχία:**  {stats.get('failed_clicks', 0)}\n"
                 f"📈 **Win rate:**  {wr}%\n"
                 f"⚡ **Ταχύτερο:**  {fc_txt}"
+                f"{real_line}"
                 f"{tok_lines}"
+                f"{conf_lines}"
             )
             dash_url = os.getenv('RAILWAY_PUBLIC_DOMAIN', '')
             buttons = []
@@ -1133,6 +1228,19 @@ def build_summary(period="daily"):
             lines.append(f"🏆 Καλύτερη μέρα:  **{best_day_claims} claims** ({bd})")
         avg = round(total_claims / 7, 1)
         lines.append(f"📉 Μ.Ο. ημέρας:  **{avg}** claims")
+        lines.append("")
+
+    # All-time confirmed (πραγματικά από Cosmobot)
+    rc = stats.get("real_claims", 0)
+    rf = stats.get("real_failed", 0)
+    ctoks = stats.get("confirmed_tokens", {})
+    if rc > 0 or rf > 0 or ctoks:
+        lines.append("─ _all-time επιβεβαιωμένα_ ─")
+        if rc > 0 or rf > 0:
+            lines.append(f"🎯 {rc} claims ✅  ·  {rf} χαμένα ❌")
+        if ctoks:
+            parts = [f"{_fmt_tok(v)} ${k}" for k, v in sorted(ctoks.items(), key=lambda x: -x[1])[:4]]
+            lines.append("💎 " + " · ".join(parts))
         lines.append("")
 
     lines.append("━━━━━━━━━━━━━━━━━━━━")
