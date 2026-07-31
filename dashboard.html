@@ -249,7 +249,7 @@ a:hover { color:#c93e13; }
       <div id="alert-list"></div>
     </div>
     <div>
-      <h3>Tokens claimed (combined)</h3>
+      <h3>Tokens earned</h3>
       <div id="token-list"></div>
     </div>
   </div>
@@ -372,31 +372,37 @@ async function load(){
 function render(s1, s2, a1, a2){
   const dual = !!REMOTE;
 
-  // KPI row
+  // KPI row — CONFIRMED ως κύρια νούμερα (αν υπάρχουν)
+  const totalReal = (s1?.real_claims||0) + (s2?.real_claims||0);
+  const totalRealFail = (s1?.real_failed||0) + (s2?.real_failed||0);
+  const hasConfirmed = totalReal > 0 || totalRealFail > 0;
+
   const kSig = (s1?.total_alerts||0) + (s2?.total_alerts||0);
-  const kCla = (s1?.successful_clicks||0) + (s2?.successful_clicks||0);
   const kCli = (s1?.total_clicks||0) + (s2?.total_clicks||0);
   const kMis = (s1?.failed_clicks||0) + (s2?.failed_clicks||0);
+
+  // Claims: δείξε confirmed αν υπάρχουν, αλλιώς clicks
+  const kCla = hasConfirmed ? totalReal : (s1?.successful_clicks||0) + (s2?.successful_clicks||0);
+
   document.getElementById('k-sig').textContent = kSig;
   document.getElementById('k-cla').textContent = kCla;
   document.getElementById('k-cli').textContent = kCli;
-  document.getElementById('k-mis').textContent = kMis;
+  document.getElementById('k-mis').textContent = hasConfirmed ? totalRealFail : kMis;
 
   const subOf = (v1,v2) => dual
     ? `${esc(BOT1_NAME)} ${v1} / ${esc(BOT2_NAME)} ${v2}`
     : `${esc(BOT1_NAME)} ${v1}`;
   document.getElementById('k-sig-sub').innerHTML = subOf(s1?.total_alerts||0, s2?.total_alerts||0);
   document.getElementById('k-cli-sub').innerHTML = subOf(s1?.total_clicks||0, s2?.total_clicks||0);
-  document.getElementById('k-mis-sub').innerHTML = subOf(s1?.failed_clicks||0, s2?.failed_clicks||0);
 
-  // Claims KPI: αν έχουμε confirmed data, δείξε "X real / Y failed"
-  const totalReal = (s1?.real_claims||0) + (s2?.real_claims||0);
-  const totalRealFail = (s1?.real_failed||0) + (s2?.real_failed||0);
-  if (totalReal > 0 || totalRealFail > 0) {
+  if (hasConfirmed) {
     document.getElementById('k-cla-sub').innerHTML =
-      `<span style="color:var(--accent)">${totalReal} real</span> / ${totalRealFail} failed`;
+      `<span style="color:var(--accent)">${totalReal} confirmed</span> / ${kCli} attempts`;
+    document.getElementById('k-mis-sub').innerHTML =
+      `${totalRealFail} rejected`;
   } else {
     document.getElementById('k-cla-sub').innerHTML = subOf(s1?.successful_clicks||0, s2?.successful_clicks||0);
+    document.getElementById('k-mis-sub').innerHTML = subOf(s1?.failed_clicks||0, s2?.failed_clicks||0);
   }
 
   // Bot comparison
@@ -414,31 +420,28 @@ function render(s1, s2, a1, a2){
     const tot = st.total_clicks || 0;
     const succ = st.successful_clicks || 0;
     const hitRate = tot > 0 ? Math.round(succ / tot * 100) : 0;
+    const rc = st.real_claims || 0;
+    const rf = st.real_failed || 0;
     const fast = st.fastest_click;
     const fastTxt = fast != null ? fast.toFixed(2) + 's' : '—';
     const tokens = st.tokens || {};
     const tokKeys = Object.keys(tokens).sort((a,b) => tokens[b] - tokens[a]);
-    const tokRows = tokKeys.map(k =>
-      `<div class="r"><span class="k">${tokenIcon(k)} ${esc(k)} claimed</span><span class="v">${fmt(tokens[k])}</span></div>`
-    ).join('');
-    // Confirmed (πραγματικά από Cosmobot)
-    const rc = st.real_claims || 0;
-    const rf = st.real_failed || 0;
+    // Token rows: confirmed πρώτα, estimated ως fallback
     const ctokens = st.confirmed_tokens || {};
     const ctokKeys = Object.keys(ctokens).sort((a,b) => ctokens[b] - ctokens[a]);
-    let confirmedBlock = '';
-    if (rc > 0 || rf > 0 || ctokKeys.length > 0) {
-      const confRate = (rc + rf) > 0 ? Math.round(rc / (rc + rf) * 100) : 0;
-      const ctokRows = ctokKeys.map(k =>
-        `<div class="r"><span class="k">${tokenIcon(k)} ${esc(k)} confirmed</span><span class="v acc">${fmt(ctokens[k])}</span></div>`
+    const hasConf = ctokKeys.length > 0;
+
+    let mainTokRows = '';
+    if (hasConf) {
+      // CONFIRMED tokens as primary
+      mainTokRows = ctokKeys.map(k =>
+        `<div class="r"><span class="k">${tokenIcon(k)} ${esc(k)}</span><span class="v acc">${fmt(ctokens[k])}</span></div>`
       ).join('');
-      confirmedBlock = `
-        <div class="conf-divider">confirmed by cosmobot</div>
-        <div class="r"><span class="k">Real claims</span><span class="v acc">${rc}</span></div>
-        <div class="r"><span class="k">Real failed</span><span class="v">${rf}</span></div>
-        <div class="r"><span class="k">Success rate</span><span class="v">${confRate}%</span></div>
-        ${ctokRows}
-      `;
+    } else {
+      // Fallback: estimated
+      mainTokRows = tokKeys.map(k =>
+        `<div class="r"><span class="k">${tokenIcon(k)} ${esc(k)} (est.)</span><span class="v">${fmt(tokens[k])}</span></div>`
+      ).join('');
     }
     const upTxt = b.online ? '[ ONLINE ]' : '[ OFFLINE ]';
     const upCls = b.online ? '' : 'off';
@@ -477,13 +480,12 @@ function render(s1, s2, a1, a2){
           <span class="up ${upCls}">${upTxt}</span>
         </div>
         <div class="r"><span class="k">Signals</span><span class="v">${st.total_alerts||0}</span></div>
-        <div class="r"><span class="k">Claims</span><span class="v">${succ}</span></div>
-        <div class="r"><span class="k">Clicks</span><span class="v">${tot}</span></div>
-        <div class="r"><span class="k">Missed</span><span class="v">${st.failed_clicks||0}</span></div>
-        <div class="r"><span class="k">Hit rate</span><span class="v">${hitRate}%</span></div>
+        <div class="r"><span class="k">Claims</span><span class="v">${rc > 0 ? rc : succ}${rc > 0 ? ' ✓' : ''}</span></div>
+        <div class="r"><span class="k">Attempts</span><span class="v">${tot}</span></div>
+        <div class="r"><span class="k">Rejected</span><span class="v">${rf}</span></div>
+        <div class="r"><span class="k">Hit rate</span><span class="v">${rc > 0 ? ((rc+rf)>0 ? Math.round(rc/(rc+rf)*100) : 0) : hitRate}%</span></div>
         <div class="r"><span class="k">Fastest reaction</span><span class="v acc">${fastTxt}</span></div>
-        ${tokRows}
-        ${confirmedBlock}
+        ${mainTokRows}
         ${gameBlock}
         ${tipBlock}
       </div>
@@ -510,56 +512,103 @@ function render(s1, s2, a1, a2){
     ).join('');
   }
 
-  // Tokens claimed (combined) — με manual adjustments
-  const combTokens = {};
-  const perBotTokens = { b1: (s1?.tokens || {}), b2: (s2?.tokens || {}) };
-  for(const src of [perBotTokens.b1, perBotTokens.b2]){
-    for(const [k,v] of Object.entries(src)){
-      combTokens[k] = (combTokens[k]||0) + v;
-    }
-  }
-  // Πρόσθεσε manual tokens
-  for(const [k, v] of Object.entries(MANUAL_TOKENS)){
-    combTokens[k] = (combTokens[k]||0) + v;
-  }
-  // Confirmed tokens (combined)
+  // Tokens — CONFIRMED ως primary (αν υπάρχουν), estimated ως fallback
   const combConfirmed = {};
-  for(const src of [(s1?.confirmed_tokens||{}), (s2?.confirmed_tokens||{})]){
+  const perBotConf = { b1: (s1?.confirmed_tokens||{}), b2: (s2?.confirmed_tokens||{}) };
+  for(const src of [perBotConf.b1, perBotConf.b2]){
     for(const [k,v] of Object.entries(src)){
       combConfirmed[k] = (combConfirmed[k]||0) + v;
     }
   }
-  const tokKeys = Object.keys(combTokens).sort((a,b) => combTokens[b] - combTokens[a]);
+  // Game + Tip tokens (επίσης confirmed)
+  const combGame = {};
+  for(const src of [(s1?.game_tokens||{}), (s2?.game_tokens||{})]){
+    for(const [k,v] of Object.entries(src)) combGame[k] = (combGame[k]||0) + v;
+  }
+  const combTips = {};
+  for(const src of [(s1?.tip_tokens||{}), (s2?.tip_tokens||{})]){
+    for(const [k,v] of Object.entries(src)) combTips[k] = (combTips[k]||0) + v;
+  }
+
+  // Manual tokens
+  const allConfKeys = new Set([
+    ...Object.keys(combConfirmed),
+    ...Object.keys(combGame),
+    ...Object.keys(combTips),
+    ...Object.keys(MANUAL_TOKENS)
+  ]);
+
+  // Fallback: estimated tokens (αν δεν υπάρχουν confirmed)
+  const combEstimated = {};
+  const perBotEst = { b1: (s1?.tokens || {}), b2: (s2?.tokens || {}) };
+  for(const src of [perBotEst.b1, perBotEst.b2]){
+    for(const [k,v] of Object.entries(src)) combEstimated[k] = (combEstimated[k]||0) + v;
+  }
+
+  const hasAnyConfirmed = allConfKeys.size > 0;
   const tokEl = document.getElementById('token-list');
-  if(tokKeys.length === 0){
-    tokEl.innerHTML = '<div class="empty">no claims recorded yet</div>';
-  } else {
-    tokEl.innerHTML = tokKeys.map(k => {
-      const total = combTokens[k];
-      const v1 = perBotTokens.b1[k] || 0;
-      const v2 = perBotTokens.b2[k] || 0;
-      const manual = MANUAL_TOKENS[k] || 0;
-      const confirmed = combConfirmed[k] || 0;
-      let bdParts = [];
-      bdParts.push(`${esc(BOT1_NAME)} ${fmt(v1)}`);
-      if(dual) bdParts.push(`${esc(BOT2_NAME)} ${fmt(v2)}`);
-      if(manual > 0) bdParts.push(`Manual ${fmt(manual)}`);
-      const bd = bdParts.join(' · ');
-      // Confirmed badge αν υπάρχει
-      const confBadge = confirmed > 0
-        ? `<div class="tok-conf">✓ confirmed: <b>${fmt(confirmed)}</b></div>`
-        : '';
-      return `
-        <div class="tok">
-          <div class="top">
-            <span class="sym">${tokenIcon(k)} ${esc(k)}</span>
-            <span class="tot">${fmt(total)}</span>
+
+  if (hasAnyConfirmed) {
+    // CONFIRMED MODE: δείξε μόνο πραγματικά tokens
+    const allTokens = {};
+    for(const k of allConfKeys){
+      allTokens[k] = (combConfirmed[k]||0) + (combGame[k]||0) + (combTips[k]||0) + (MANUAL_TOKENS[k]||0);
+    }
+    const tokKeys = Object.keys(allTokens).sort((a,b) => allTokens[b] - allTokens[a]);
+    if(tokKeys.length === 0){
+      tokEl.innerHTML = '<div class="empty">no confirmed claims yet</div>';
+    } else {
+      tokEl.innerHTML = tokKeys.map(k => {
+        const total = allTokens[k];
+        const giveaway = combConfirmed[k] || 0;
+        const game = combGame[k] || 0;
+        const tip = combTips[k] || 0;
+        const manual = MANUAL_TOKENS[k] || 0;
+        let parts = [];
+        if(giveaway > 0) parts.push(`🎯${fmt(giveaway)}`);
+        if(game > 0) parts.push(`🎮${fmt(game)}`);
+        if(tip > 0) parts.push(`🎁${fmt(tip)}`);
+        if(manual > 0) parts.push(`✋${fmt(manual)}`);
+        const bd = parts.join(' · ');
+        return `
+          <div class="tok">
+            <div class="top">
+              <span class="sym">${tokenIcon(k)} ${esc(k)}</span>
+              <span class="tot">${fmt(total)}</span>
+            </div>
+            <div class="bd">${bd}</div>
           </div>
-          <div class="bd">${bd}</div>
-          ${confBadge}
-        </div>
-      `;
-    }).join('');
+        `;
+      }).join('');
+    }
+  } else {
+    // FALLBACK: δεν υπάρχουν confirmed ακόμα — δείξε estimated
+    for(const [k, v] of Object.entries(MANUAL_TOKENS)){
+      combEstimated[k] = (combEstimated[k]||0) + v;
+    }
+    const tokKeys = Object.keys(combEstimated).sort((a,b) => combEstimated[b] - combEstimated[a]);
+    if(tokKeys.length === 0){
+      tokEl.innerHTML = '<div class="empty">no claims recorded yet</div>';
+    } else {
+      tokEl.innerHTML = tokKeys.map(k => {
+        const total = combEstimated[k];
+        const v1 = perBotEst.b1[k] || 0;
+        const v2 = perBotEst.b2[k] || 0;
+        const manual = MANUAL_TOKENS[k] || 0;
+        let bdParts = [`${esc(BOT1_NAME)} ${fmt(v1)}`];
+        if(dual) bdParts.push(`${esc(BOT2_NAME)} ${fmt(v2)}`);
+        if(manual > 0) bdParts.push(`Manual ${fmt(manual)}`);
+        return `
+          <div class="tok">
+            <div class="top">
+              <span class="sym">${tokenIcon(k)} ${esc(k)}</span>
+              <span class="tot">${fmt(total)}</span>
+            </div>
+            <div class="bd">${bdParts.join(' · ')} (est.)</div>
+          </div>
+        `;
+      }).join('');
+    }
   }
 
   // Activity log
