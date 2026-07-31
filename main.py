@@ -888,64 +888,75 @@ async def on_cb(event):
             await event.edit(text, buttons=btns)
 
         elif data == "stats":
-            wr = 0
-            if stats.get("total_clicks", 0) > 0:
-                wr = round(stats.get("successful_clicks", 0) / stats["total_clicks"] * 100)
-            fc = stats.get("fastest_click")
-            fc_txt = f"{fc}s" if fc else "—"
-            # Tokens summary (estimate)
-            toks = stats.get("tokens", {})
-            tok_lines = ""
-            if toks:
-                sorted_toks = sorted(toks.items(), key=lambda x: -x[1])
-                tok_lines = "\n\n💰 **Tokens (est.):**\n" + "\n".join(
-                    f"  • {v:g} ${k}" for k, v in sorted_toks[:8]
-                )
-            # Confirmed tokens (giveaways)
-            ctoks = stats.get("confirmed_tokens", {})
-            conf_lines = ""
-            if ctoks:
-                sorted_ctoks = sorted(ctoks.items(), key=lambda x: -x[1])
-                conf_lines = "\n\n🎯 **Από giveaways:**\n" + "\n".join(
-                    f"  • {v:g} ${k}" for k, v in sorted_ctoks[:6]
-                )
-            # Game tokens
-            gtoks = stats.get("game_tokens", {})
-            game_lines = ""
-            if gtoks:
-                sorted_g = sorted(gtoks.items(), key=lambda x: -x[1])
-                gw = stats.get("game_wins", 0)
-                game_lines = f"\n\n🎮 **Από games** ({gw} νίκες):\n" + "\n".join(
-                    f"  • {v:g} ${k}" for k, v in sorted_g[:6]
-                )
-            # Tip tokens
-            ttoks = stats.get("tip_tokens", {})
-            tip_lines = ""
-            if ttoks:
-                sorted_t = sorted(ttoks.items(), key=lambda x: -x[1])
-                tr = stats.get("tips_received", 0)
-                tip_lines = f"\n\n🎁 **Από tips** ({tr}):\n" + "\n".join(
-                    f"  • {v:g} ${k}" for k, v in sorted_t[:6]
-                )
-            # Real claim line (μόνο αν έχουμε δεδομένα)
-            real_line = ""
             rc = stats.get("real_claims", 0)
             rf = stats.get("real_failed", 0)
-            if rc > 0 or rf > 0:
-                real_line = f"\n🎯 **Giveaway claims:**  {rc} ✅ · {rf} ❌"
+            fc = stats.get("fastest_click")
+            fc_txt = f"{fc}s" if fc else "—"
+            has_confirmed = rc > 0 or rf > 0
+
+            # Hit rate: confirmed αν υπάρχει, αλλιώς clicks
+            if has_confirmed:
+                wr = round(rc / (rc + rf) * 100) if (rc + rf) > 0 else 0
+            else:
+                wr = round(stats.get("successful_clicks", 0) / stats["total_clicks"] * 100) if stats.get("total_clicks", 0) > 0 else 0
+
+            # Header stats
+            if has_confirmed:
+                header = (
+                    f"🔔 **Alerts:**  {stats.get('total_alerts', 0)}\n"
+                    f"🖱️ **Attempts:**  {stats.get('total_clicks', 0)}\n"
+                    f"✅ **Claims:**  {rc}\n"
+                    f"❌ **Rejected:**  {rf}\n"
+                    f"📈 **Success rate:**  {wr}%\n"
+                    f"⚡ **Ταχύτερο:**  {fc_txt}"
+                )
+            else:
+                header = (
+                    f"🔔 **Alerts:**  {stats.get('total_alerts', 0)}\n"
+                    f"🖱️ **Clicks:**  {stats.get('total_clicks', 0)}\n"
+                    f"✅ **Επιτυχή:**  {stats.get('successful_clicks', 0)}\n"
+                    f"❌ **Αποτυχία:**  {stats.get('failed_clicks', 0)}\n"
+                    f"📈 **Win rate:**  {wr}%\n"
+                    f"⚡ **Ταχύτερο:**  {fc_txt}\n\n"
+                    f"_⏳ Αναμονή confirmed data από Cosmobot..._"
+                )
+
+            # Tokens: μόνο confirmed sources
+            token_sections = ""
+
+            # Giveaway tokens
+            ctoks = stats.get("confirmed_tokens", {})
+            if ctoks:
+                sorted_c = sorted(ctoks.items(), key=lambda x: -x[1])
+                token_sections += "\n\n🎯 **Giveaways:**\n" + "\n".join(
+                    f"  • {v:g} ${k}" for k, v in sorted_c[:6]
+                )
+
+            # Game tokens
+            gtoks = stats.get("game_tokens", {})
+            if gtoks:
+                gw = stats.get("game_wins", 0)
+                sorted_g = sorted(gtoks.items(), key=lambda x: -x[1])
+                token_sections += f"\n\n🎮 **Games** ({gw}):\n" + "\n".join(
+                    f"  • {v:g} ${k}" for k, v in sorted_g[:6]
+                )
+
+            # Tip tokens
+            ttoks = stats.get("tip_tokens", {})
+            if ttoks:
+                tr = stats.get("tips_received", 0)
+                sorted_t = sorted(ttoks.items(), key=lambda x: -x[1])
+                token_sections += f"\n\n🎁 **Tips** ({tr}):\n" + "\n".join(
+                    f"  • {v:g} ${k}" for k, v in sorted_t[:6]
+                )
+
+            if not token_sections and not has_confirmed:
+                token_sections = "\n\n_Δεν υπάρχουν ακόμα confirmed data._"
+
             text = (
                 "📊 **Στατιστικά**\n─────────────────────\n\n"
-                f"🔔 **Alerts:**  {stats.get('total_alerts', 0)}\n"
-                f"🖱️ **Clicks:**  {stats.get('total_clicks', 0)}\n"
-                f"✅ **Επιτυχή:**  {stats.get('successful_clicks', 0)}\n"
-                f"❌ **Αποτυχία:**  {stats.get('failed_clicks', 0)}\n"
-                f"📈 **Win rate:**  {wr}%\n"
-                f"⚡ **Ταχύτερο:**  {fc_txt}"
-                f"{real_line}"
-                f"{tok_lines}"
-                f"{conf_lines}"
-                f"{game_lines}"
-                f"{tip_lines}"
+                f"{header}"
+                f"{token_sections}"
             )
             dash_url = os.getenv('RAILWAY_PUBLIC_DOMAIN', '')
             buttons = []
