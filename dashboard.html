@@ -10,7 +10,7 @@
 :root {
   --ink: #111;
   --card: #fff;
-  --page: #efeee8;
+  --page: #d5d4ce;
   --accent: #ff4d1a;
   --dim: #555;
   --dimmer: #666;
@@ -422,8 +422,6 @@ function render(s1, s2, a1, a2){
     const hitRate = tot > 0 ? Math.round(succ / tot * 100) : 0;
     const rc = st.real_claims || 0;
     const rf = st.real_failed || 0;
-    const fast = st.fastest_click;
-    const fastTxt = fast != null ? fast.toFixed(2) + 's' : '—';
     const tokens = st.tokens || {};
     const tokKeys = Object.keys(tokens).sort((a,b) => tokens[b] - tokens[a]);
     // Token rows: confirmed πρώτα, estimated ως fallback
@@ -484,7 +482,7 @@ function render(s1, s2, a1, a2){
         <div class="r"><span class="k">Attempts</span><span class="v">${tot}</span></div>
         <div class="r"><span class="k">Rejected</span><span class="v">${rf}</span></div>
         <div class="r"><span class="k">Hit rate</span><span class="v">${rc > 0 ? ((rc+rf)>0 ? Math.round(rc/(rc+rf)*100) : 0) : hitRate}%</span></div>
-        <div class="r"><span class="k">Fastest reaction</span><span class="v acc">${fastTxt}</span></div>
+        ${mainTokRows ? '<div class="conf-divider">🎯 giveaway tokens</div>' : ''}
         ${mainTokRows}
         ${gameBlock}
         ${tipBlock}

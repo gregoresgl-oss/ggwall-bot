@@ -890,8 +890,6 @@ async def on_cb(event):
         elif data == "stats":
             rc = stats.get("real_claims", 0)
             rf = stats.get("real_failed", 0)
-            fc = stats.get("fastest_click")
-            fc_txt = f"{fc}s" if fc else "—"
             has_confirmed = rc > 0 or rf > 0
 
             # Hit rate: confirmed αν υπάρχει, αλλιώς clicks
@@ -907,8 +905,7 @@ async def on_cb(event):
                     f"🖱️ **Attempts:**  {stats.get('total_clicks', 0)}\n"
                     f"✅ **Claims:**  {rc}\n"
                     f"❌ **Rejected:**  {rf}\n"
-                    f"📈 **Success rate:**  {wr}%\n"
-                    f"⚡ **Ταχύτερο:**  {fc_txt}"
+                    f"📈 **Success rate:**  {wr}%"
                 )
             else:
                 header = (
@@ -916,8 +913,7 @@ async def on_cb(event):
                     f"🖱️ **Clicks:**  {stats.get('total_clicks', 0)}\n"
                     f"✅ **Επιτυχή:**  {stats.get('successful_clicks', 0)}\n"
                     f"❌ **Αποτυχία:**  {stats.get('failed_clicks', 0)}\n"
-                    f"📈 **Win rate:**  {wr}%\n"
-                    f"⚡ **Ταχύτερο:**  {fc_txt}\n\n"
+                    f"📈 **Win rate:**  {wr}%\n\n"
                     f"_⏳ Αναμονή confirmed data από Cosmobot..._"
                 )
 
