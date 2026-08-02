@@ -202,7 +202,7 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
   <div class="chart-card">
     <div class="chart-hdr">
       <h3>Daily activity</h3>
-      <span class="chart-legend"><span class="leg-dot grn"></span>Claims <span class="leg-dot amb"></span>Rejected</span>
+      <span class="chart-legend"><span class="leg-dot grn"></span>Claims</span>
     </div>
     <div class="chart-wrap" id="chart"></div>
   </div>
@@ -214,6 +214,7 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
     </div>
     <div>
       <h3>Tokens earned</h3>
+      <div style="font-size:10px;color:var(--dimmer);margin-bottom:12px;">🎯 giveaway · 🎮 game · 🎁 tip · ✋ manual</div>
       <div id="token-list"></div>
     </div>
   </div>
@@ -281,9 +282,9 @@ function renderChart(s1, s2) {
     });
   }
 
-  const maxVal = Math.max(1, ...days.map(d => d.alerts));
+  const maxVal = Math.max(1, ...days.map(d => d.claims));
 
-  if (days.every(d => d.alerts === 0 && d.claims === 0)) {
+  if (days.every(d => d.claims === 0)) {
     el.innerHTML = '<div class="chart-empty">Δεν υπάρχουν δεδομένα ακόμα</div>';
     return;
   }
@@ -297,25 +298,13 @@ function renderChart(s1, s2) {
   days.forEach((d, i) => {
     const x = pad + i * (barW + barGap);
 
-    // Missed bar (alerts that weren't claimed — red, dimmer)
-    if (d.alerts > d.claims) {
-      const missH = Math.round(((d.alerts - d.claims) / maxVal) * (H - 24));
-      const claimH = Math.round((d.claims / maxVal) * (H - 24));
-      const missY = H - 20 - claimH - missH;
-      bars += `<rect x="${x}" y="${missY}" width="${barW}" height="${missH}" rx="2" fill="var(--red)" opacity="0.4"/>`;
-    }
-
-    // Claims bar (primary — green)
+    // Claims bar (green)
     if (d.claims > 0) {
-      const claimH = Math.round((d.claims / maxVal) * (H - 24));
+      const claimH = Math.max(4, Math.round((d.claims / maxVal) * (H - 28)));
       const claimY = H - 20 - claimH;
       bars += `<rect x="${x}" y="${claimY}" width="${barW}" height="${claimH}" rx="2" fill="var(--green)" opacity="0.8"/>`;
-    }
-
-    // Value label on top
-    if (d.claims > 0) {
-      const totalH = Math.round((d.alerts / maxVal) * (H - 24));
-      bars += `<text x="${x + barW/2}" y="${H - 20 - totalH - 4}" text-anchor="middle" fill="var(--dim)" font-size="9" font-family="Inter">${d.claims}</text>`;
+      // Number on top of bar
+      bars += `<text x="${x + barW/2}" y="${claimY - 4}" text-anchor="middle" fill="var(--dim)" font-size="9" font-family="Inter">${d.claims}</text>`;
     }
 
     // Day label at bottom
