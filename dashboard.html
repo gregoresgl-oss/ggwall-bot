@@ -300,11 +300,12 @@ function renderChart(s1, s2) {
 
     // Claims bar (green)
     if (d.claims > 0) {
-      const claimH = Math.max(4, Math.round((d.claims / maxVal) * (H - 28)));
+      const claimH = Math.max(4, Math.round((d.claims / maxVal) * (H - 36)));
       const claimY = H - 20 - claimH;
       bars += `<rect x="${x}" y="${claimY}" width="${barW}" height="${claimH}" rx="2" fill="var(--green)" opacity="0.8"/>`;
-      // Number on top of bar
-      bars += `<text x="${x + barW/2}" y="${claimY - 4}" text-anchor="middle" fill="var(--dim)" font-size="9" font-family="Inter">${d.claims}</text>`;
+      // Number — ensure stays inside viewBox
+      const textY = Math.max(12, claimY - 4);
+      bars += `<text x="${x + barW/2}" y="${textY}" text-anchor="middle" fill="var(--dim)" font-size="9" font-family="Inter">${d.claims}</text>`;
     }
 
     // Day label at bottom
