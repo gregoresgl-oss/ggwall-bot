@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GGWALL Monitor</title>
+<title>GGWALL.NET</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -31,7 +31,10 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
 /* Header */
 .hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;gap:16px;flex-wrap:wrap;}
 .hdr-left{display:flex;align-items:center;gap:14px;}
-.logo{width:40px;height:40px;border-radius:12px;background:var(--amber-bg);border:1.5px solid rgba(227,168,59,0.3);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;color:var(--amber);}
+@keyframes ggSpinCW{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+@keyframes ggSpinCCW{from{transform:rotate(0)}to{transform:rotate(-360deg)}}
+.logo{width:36px;height:36px;flex-shrink:0;}
+.logo svg{width:100%;height:100%;overflow:visible;}
 .hdr h1{font-size:20px;font-weight:700;letter-spacing:-0.3px;}
 .hdr h1 span{font-weight:400;color:var(--dim);}
 .hdr-right{display:flex;align-items:center;gap:12px;}
@@ -138,8 +141,15 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
 
   <div class="hdr">
     <div class="hdr-left">
-      <div class="logo">G</div>
-      <h1>GGWALL<span>.Monitor</span></h1>
+      <div class="logo">
+        <svg viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg" style="overflow:visible">
+          <defs><radialGradient id="pg" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#f7e7b8"/><stop offset="55%" stop-color="#d4af5a"/><stop offset="100%" stop-color="#8a6a2a"/></radialGradient></defs>
+          <g style="transform-origin:15px 15px;animation:ggSpinCW 22s linear infinite"><circle cx="15" cy="15" r="13" fill="none" stroke="rgba(212,175,90,.5)" stroke-width=".8"/><circle cx="28" cy="15" r="1.4" fill="#f3e3b5"/></g>
+          <g style="transform-origin:15px 15px;animation:ggSpinCCW 14s linear infinite"><circle cx="15" cy="15" r="8" fill="none" stroke="rgba(212,175,90,.75)" stroke-width=".9"/><circle cx="7" cy="15" r="1.1" fill="#f3e3b5"/></g>
+          <circle cx="15" cy="15" r="3.5" fill="url(#pg)" filter="drop-shadow(0 0 3px rgba(212,175,90,.4))"/>
+        </svg>
+      </div>
+      <h1>GGWALL<span>.NET</span></h1>
     </div>
     <div class="hdr-right">
       <div class="pill"><span class="dot" id="s-dot"></span><span id="s-txt">loading</span></div>
@@ -266,15 +276,15 @@ function renderChart(s1, s2) {
     days.push({
       key,
       label: dayNum + '',
-      claims: (d1.claims || 0) + (d2.claims || 0),
-      alerts: (d1.alerts || 0) + (d2.alerts || 0),
+      confirmed: (d1.confirmed || 0) + (d2.confirmed || 0),
+      rejected: (d1.rejected || 0) + (d2.rejected || 0),
     });
   }
 
-  const maxVal = Math.max(1, ...days.map(d => d.alerts));
+  const maxVal = Math.max(1, ...days.map(d => d.confirmed + d.rejected));
 
-  if (days.every(d => d.alerts === 0 && d.claims === 0)) {
-    el.innerHTML = '<div class="chart-empty">Δεν υπάρχουν δεδομένα ακόμα</div>';
+  if (days.every(d => d.confirmed === 0 && d.rejected === 0)) {
+    el.innerHTML = '<div class="chart-empty">Δεν υπάρχουν confirmed data ακόμα</div>';
     return;
   }
 
@@ -286,25 +296,27 @@ function renderChart(s1, s2) {
 
   days.forEach((d, i) => {
     const x = pad + i * (barW + barGap);
+    const total = d.confirmed + d.rejected;
 
-    // Alert bar (background — dimmer)
-    const alertH = Math.round((d.alerts / maxVal) * (H - 24));
-    const alertY = H - 20 - alertH;
-    if (d.alerts > 0 && d.alerts > d.claims) {
-      const rejH = Math.round(((d.alerts - d.claims) / maxVal) * (H - 24));
-      bars += `<rect x="${x}" y="${alertY}" width="${barW}" height="${rejH}" rx="2" fill="var(--red)" opacity="0.4"/>`;
+    // Rejected bar (background — red, dimmer)
+    if (d.rejected > 0) {
+      const rejH = Math.round((d.rejected / maxVal) * (H - 24));
+      const confH = Math.round((d.confirmed / maxVal) * (H - 24));
+      const rejY = H - 20 - confH - rejH;
+      bars += `<rect x="${x}" y="${rejY}" width="${barW}" height="${rejH}" rx="2" fill="var(--red)" opacity="0.4"/>`;
     }
 
-    // Claims bar (primary — green)
-    const claimH = Math.round((d.claims / maxVal) * (H - 24));
-    const claimY = H - 20 - claimH;
-    if (d.claims > 0) {
-      bars += `<rect x="${x}" y="${claimY}" width="${barW}" height="${claimH}" rx="2" fill="var(--green)" opacity="0.8"/>`;
+    // Confirmed bar (primary — green)
+    if (d.confirmed > 0) {
+      const confH = Math.round((d.confirmed / maxVal) * (H - 24));
+      const confY = H - 20 - confH;
+      bars += `<rect x="${x}" y="${confY}" width="${barW}" height="${confH}" rx="2" fill="var(--green)" opacity="0.8"/>`;
     }
 
-    // Value label on top of bar
-    if (d.claims > 0) {
-      bars += `<text x="${x + barW/2}" y="${claimY - 4}" text-anchor="middle" fill="var(--dim)" font-size="9" font-family="Inter">${d.claims}</text>`;
+    // Value label on top
+    if (d.confirmed > 0) {
+      const totalH = Math.round((total / maxVal) * (H - 24));
+      bars += `<text x="${x + barW/2}" y="${H - 20 - totalH - 4}" text-anchor="middle" fill="var(--dim)" font-size="9" font-family="Inter">${d.confirmed}</text>`;
     }
 
     // Day label at bottom
