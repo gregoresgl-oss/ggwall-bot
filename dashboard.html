@@ -88,6 +88,18 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
 .bot .r .v.red{color:var(--red);}
 .bot .divider{font-size:10px;color:var(--dimmer);text-transform:uppercase;letter-spacing:1px;margin:16px 0 8px;padding-top:14px;border-top:1px solid var(--border);}
 
+/* Chart */
+.chart-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;margin-bottom:24px;}
+.chart-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;}
+.chart-hdr h3{font-size:11px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.8px;margin:0;}
+.chart-legend{font-size:10px;color:var(--dimmer);display:flex;align-items:center;gap:10px;}
+.leg-dot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:3px;}
+.leg-dot.grn{background:var(--green);}
+.leg-dot.amb{background:var(--red);}
+.chart-wrap{height:120px;position:relative;}
+.chart-wrap svg{width:100%;height:100%;}
+.chart-empty{font-size:12px;color:var(--dimmer);text-align:center;padding-top:40px;}
+
 /* Split section */
 .split{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border-radius:14px;overflow:hidden;margin-bottom:24px;}
 .split>div{background:var(--surface);padding:24px;}
@@ -177,6 +189,14 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
 
   <div class="bots" id="bots-grid"></div>
 
+  <div class="chart-card">
+    <div class="chart-hdr">
+      <h3>Daily activity</h3>
+      <span class="chart-legend"><span class="leg-dot grn"></span>Claims <span class="leg-dot amb"></span>Rejected</span>
+    </div>
+    <div class="chart-wrap" id="chart"></div>
+  </div>
+
   <div class="split">
     <div>
       <h3>Alert breakdown</h3>
@@ -222,6 +242,77 @@ function tokenIcon(sym){
   const S=esc(sym.toUpperCase()),url=TOKEN_LOGOS[sym.toUpperCase()],ini=esc(sym.slice(0,4).toUpperCase());
   if(url)return`<span class="tok-ic"><img class="tok-logo" src="${url}" alt="${S}" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';"/><span class="tok-fallback" style="display:none;">${ini}</span></span>`;
   return`<span class="tok-fallback">${ini}</span>`;
+}
+
+function renderChart(s1, s2) {
+  const el = document.getElementById('chart');
+  const daily1 = s1?.daily || {};
+  const daily2 = s2?.daily || {};
+
+  // Merge daily data from both bots
+  const allDays = new Set([...Object.keys(daily1), ...Object.keys(daily2)]);
+
+  // Last 14 days
+  const today = new Date();
+  const days = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    const label = d.toLocaleDateString('el-GR', { weekday: 'short' }).slice(0, 2);
+    const dayNum = d.getDate();
+    const d1 = daily1[key] || {};
+    const d2 = daily2[key] || {};
+    days.push({
+      key,
+      label: dayNum + '',
+      claims: (d1.claims || 0) + (d2.claims || 0),
+      alerts: (d1.alerts || 0) + (d2.alerts || 0),
+    });
+  }
+
+  const maxVal = Math.max(1, ...days.map(d => d.alerts));
+
+  if (days.every(d => d.alerts === 0 && d.claims === 0)) {
+    el.innerHTML = '<div class="chart-empty">Δεν υπάρχουν δεδομένα ακόμα</div>';
+    return;
+  }
+
+  const W = 700, H = 120, pad = 30, barGap = 4;
+  const barW = Math.floor((W - pad) / days.length) - barGap;
+
+  let bars = '';
+  let labels = '';
+
+  days.forEach((d, i) => {
+    const x = pad + i * (barW + barGap);
+
+    // Alert bar (background — dimmer)
+    const alertH = Math.round((d.alerts / maxVal) * (H - 24));
+    const alertY = H - 20 - alertH;
+    if (d.alerts > 0 && d.alerts > d.claims) {
+      const rejH = Math.round(((d.alerts - d.claims) / maxVal) * (H - 24));
+      bars += `<rect x="${x}" y="${alertY}" width="${barW}" height="${rejH}" rx="2" fill="var(--red)" opacity="0.4"/>`;
+    }
+
+    // Claims bar (primary — green)
+    const claimH = Math.round((d.claims / maxVal) * (H - 24));
+    const claimY = H - 20 - claimH;
+    if (d.claims > 0) {
+      bars += `<rect x="${x}" y="${claimY}" width="${barW}" height="${claimH}" rx="2" fill="var(--green)" opacity="0.8"/>`;
+    }
+
+    // Value label on top of bar
+    if (d.claims > 0) {
+      bars += `<text x="${x + barW/2}" y="${claimY - 4}" text-anchor="middle" fill="var(--dim)" font-size="9" font-family="Inter">${d.claims}</text>`;
+    }
+
+    // Day label at bottom
+    const isToday = i === days.length - 1;
+    labels += `<text x="${x + barW/2}" y="${H - 4}" text-anchor="middle" fill="${isToday ? 'var(--text)' : 'var(--dimmer)'}" font-size="${isToday ? '10' : '9'}" font-family="Inter" font-weight="${isToday ? '700' : '400'}">${d.label}</text>`;
+  });
+
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${bars}${labels}</svg>`;
 }
 
 async function load(){
@@ -312,6 +403,9 @@ function render(s1,s2,set1,set2,a1,a2){
       ${gameBlock}${tipBlock}
     </div>`;
   }).join('');
+
+  // Chart — daily claims bar chart (last 14 days)
+  renderChart(s1, s2);
 
   // Alert breakdown
   const allAlerts=[...(a1||[]).map(x=>({...x,_bot:BOT1_NAME})),...(a2||[]).map(x=>({...x,_bot:BOT2_NAME}))];
