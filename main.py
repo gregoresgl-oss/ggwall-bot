@@ -140,11 +140,11 @@ def save_stats(s):
 
 def bump_daily(kind, tok_sym=None, tok_amt=None):
     """Ενημερώνει τον daily counter για σήμερα.
-    kind: 'alert' | 'claim'
+    kind: 'alert' | 'claim' | 'confirmed' | 'rejected'
     """
     today = time.strftime("%Y-%m-%d")
     stats.setdefault("daily", {})
-    day = stats["daily"].setdefault(today, {"alerts": 0, "claims": 0, "tokens": {}})
+    day = stats["daily"].setdefault(today, {"alerts": 0, "claims": 0, "confirmed": 0, "rejected": 0, "tokens": {}})
     if kind == "alert":
         day["alerts"] = day.get("alerts", 0) + 1
     elif kind == "claim":
@@ -152,6 +152,10 @@ def bump_daily(kind, tok_sym=None, tok_amt=None):
         if tok_sym and tok_amt:
             day.setdefault("tokens", {})
             day["tokens"][tok_sym] = round(day["tokens"].get(tok_sym, 0) + tok_amt, 4)
+    elif kind == "confirmed":
+        day["confirmed"] = day.get("confirmed", 0) + 1
+    elif kind == "rejected":
+        day["rejected"] = day.get("rejected", 0) + 1
     # Κράτα μόνο τις τελευταίες 60 μέρες (καθάρισμα)
     if len(stats["daily"]) > 60:
         for old_key in sorted(stats["daily"].keys())[:-60]:
@@ -425,6 +429,7 @@ async def on_cosmobot_dm(event):
             if amt and sym:
                 stats.setdefault("confirmed_tokens", {})
                 stats["confirmed_tokens"][sym] = round(stats["confirmed_tokens"].get(sym, 0) + amt, 4)
+            bump_daily("confirmed")
             save_stats(stats)
             if amt and sym:
                 await bot_client.send_message(owner_id,
@@ -479,6 +484,7 @@ async def on_cosmobot_dm(event):
             req = REQUIRED_RE.search(text)
             agg = AGGREGATE_RE.search(text)
             stats["real_failed"] = stats.get("real_failed", 0) + 1
+            bump_daily("rejected")
             save_stats(stats)
             req_txt = ""
             if req and agg:
@@ -497,12 +503,14 @@ async def on_cosmobot_dm(event):
         # ⚠️ Ήδη claimed
         elif "already claimed" in tl:
             stats["real_failed"] = stats.get("real_failed", 0) + 1
+            bump_daily("rejected")
             save_stats(stats)
             logger.info("⚠️ Already claimed")
 
         # ⏰ Πολύ αργά / γεμάτο
         elif "already ended" in tl or "giveaway has ended" in tl or "fully claimed" in tl or "no longer available" in tl:
             stats["real_failed"] = stats.get("real_failed", 0) + 1
+            bump_daily("rejected")
             save_stats(stats)
             await bot_client.send_message(owner_id,
                 "⏰ **Άργησες** — το giveaway τελείωσε ή γέμισε.", link_preview=False)
@@ -1172,14 +1180,33 @@ async def on_text(event):
         logger.error(f"Text: {e}")
 
 # ============ API ============
+DASHBOARD_KEY = os.getenv('DASHBOARD_KEY', '')
+
 def cors(): return {"Access-Control-Allow-Origin": "*"}
-async def a_settings(r): return web.json_response(settings, headers=cors())
-async def a_stats(r): return web.json_response(stats, headers=cors())
-async def a_alerts(r): return web.json_response(load_alerts(), headers=cors())
-async def a_health(r): return web.json_response({"status": "running", "owner": owner_id}, headers=cors())
+
+def check_key(r):
+    """Ελέγχει αν το request έχει σωστό key. Επιστρέφει True αν OK."""
+    if not DASHBOARD_KEY:
+        return True  # Αν δεν έχει οριστεί key, επίτρεψε (backward compatible)
+    return r.query.get('key', '') == DASHBOARD_KEY
+
+def denied():
+    return web.Response(text="403 Forbidden", status=403)
+
+async def a_settings(r):
+    if not check_key(r): return denied()
+    return web.json_response(settings, headers=cors())
+async def a_stats(r):
+    if not check_key(r): return denied()
+    return web.json_response(stats, headers=cors())
+async def a_alerts(r):
+    if not check_key(r): return denied()
+    return web.json_response(load_alerts(), headers=cors())
+async def a_health(r): return web.json_response({"status": "running"}, headers=cors())
 
 async def a_purge_alerts(r):
     """Διαγράφει όλα τα alerts από συγκεκριμένο κανάλι και προσαρμόζει τα stats."""
+    if not check_key(r): return denied()
     global stats
     try:
         channel = (r.query.get('channel', '') or '').strip()
@@ -1214,10 +1241,20 @@ async def a_purge_alerts(r):
         return web.json_response({"ok": False, "error": str(e)}, headers=cors())
 
 async def a_dashboard(r):
+    if not check_key(r): return denied()
     try:
         dpath = Path(__file__).parent / "dashboard.html"
         if dpath.exists():
-            return web.Response(text=dpath.read_text(encoding='utf-8'), content_type='text/html')
+            html = dpath.read_text(encoding='utf-8')
+            # Inject key στο frontend ώστε τα API calls να το περιλαμβάνουν
+            key = r.query.get('key', '')
+            if key:
+                html = html.replace('const LOCAL=window.location.origin;',
+                    f'const LOCAL=window.location.origin;const API_KEY="{key}";', 1)
+            else:
+                html = html.replace('const LOCAL=window.location.origin;',
+                    'const LOCAL=window.location.origin;const API_KEY="";', 1)
+            return web.Response(text=html, content_type='text/html')
         return web.Response(text="Dashboard not found", status=404)
     except Exception as e:
         return web.Response(text=str(e), status=500)

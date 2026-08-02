@@ -232,7 +232,7 @@ let ALL_CHANNELS=new Set();
 
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
 function fmt(n){if(n==null)return'—';if(n>=1000)return n.toLocaleString('en-US',{maximumFractionDigits:0});return n%1===0?String(n):n.toFixed(2);}
-async function J(base,path){if(!base)return null;try{const r=await fetch(base+path);if(!r.ok)return null;return await r.json();}catch(e){return null;}}
+async function J(base,path){if(!base)return null;try{const sep=path.includes('?')?'&':'?';const url=base+path+(typeof API_KEY!=='undefined'&&API_KEY?sep+'key='+API_KEY:'');const r=await fetch(url);if(!r.ok)return null;return await r.json();}catch(e){return null;}}
 
 const TOKEN_LOGOS={
   ATOM:'https://raw.githubusercontent.com/cosmos/chain-registry/master/cosmoshub/images/atom.png',
@@ -488,8 +488,8 @@ async function purgeChannel(){
   if(!confirm('Delete all alerts from "'+ch+'"?'))return;
   msg.style.display='block';msg.style.color='var(--dim)';msg.textContent='Purging…';
   const res=[];let err=false;
-  try{const r=await fetch(`${LOCAL}/api/alerts/purge?channel=${encodeURIComponent(ch)}`);const d=await r.json();if(d.ok===false){res.push(BOT1_NAME+': error');err=true;}else res.push(BOT1_NAME+': '+d.removed+' removed');}catch(e){res.push(BOT1_NAME+': failed');err=true;}
-  if(REMOTE){try{const r=await fetch(`${REMOTE}/api/alerts/purge?channel=${encodeURIComponent(ch)}`);const d=await r.json();if(d.ok===false){res.push(BOT2_NAME+': error');err=true;}else res.push(BOT2_NAME+': '+d.removed+' removed');}catch(e){res.push(BOT2_NAME+': failed');err=true;}}
+  try{const kp=typeof API_KEY!=='undefined'&&API_KEY?'&key='+API_KEY:'';const r=await fetch(`${LOCAL}/api/alerts/purge?channel=${encodeURIComponent(ch)}${kp}`);const d=await r.json();if(d.ok===false){res.push(BOT1_NAME+': error');err=true;}else res.push(BOT1_NAME+': '+d.removed+' removed');}catch(e){res.push(BOT1_NAME+': failed');err=true;}
+  if(REMOTE){try{const kp=typeof API_KEY!=='undefined'&&API_KEY?'&key='+API_KEY:'';const r=await fetch(`${REMOTE}/api/alerts/purge?channel=${encodeURIComponent(ch)}${kp}`);const d=await r.json();if(d.ok===false){res.push(BOT2_NAME+': error');err=true;}else res.push(BOT2_NAME+': '+d.removed+' removed');}catch(e){res.push(BOT2_NAME+': failed');err=true;}}
   msg.style.color=err?'var(--red)':'var(--green)';msg.textContent=(err?'⚠ ':'✓ ')+res.join(' · ');sel.value='';setTimeout(()=>load(),500);
 }
 
