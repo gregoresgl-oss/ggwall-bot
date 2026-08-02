@@ -725,8 +725,10 @@ def menu_buttons():
         [Button.inline("🎲 Ρυθμίσεις Human Mode", b"delays")],
     ]
     dash = os.getenv('RAILWAY_PUBLIC_DOMAIN', '')
+    dk = os.getenv('DASHBOARD_KEY', '')
+    dash_qs = f"?key={dk}" if dk else ""
     if dash:
-        rows.append([Button.url("📈 Dashboard", f"https://{dash}"), Button.inline("🔄 Ανανέωση", b"refresh")])
+        rows.append([Button.url("📈 Dashboard", f"https://{dash}{dash_qs}"), Button.inline("🔄 Ανανέωση", b"refresh")])
     else:
         rows.append([Button.inline("🔄 Ανανέωση", b"refresh")])
     return rows
@@ -963,9 +965,11 @@ async def on_cb(event):
                 f"{token_sections}"
             )
             dash_url = os.getenv('RAILWAY_PUBLIC_DOMAIN', '')
+            dk = os.getenv('DASHBOARD_KEY', '')
+            dash_qs = f"?key={dk}" if dk else ""
             buttons = []
             if dash_url:
-                buttons.append([Button.url("📊 Άνοιξε Dashboard", f"https://{dash_url}")])
+                buttons.append([Button.url("📊 Άνοιξε Dashboard", f"https://{dash_url}{dash_qs}")])
             buttons.append([Button.inline("📊 Ημερήσια", b"sum_daily"), Button.inline("📈 Εβδομαδιαία", b"sum_weekly")])
             buttons.append([Button.inline("🔄 Reset", b"reset_stats")])
             buttons.append([Button.inline("← Πίσω", b"back")])
