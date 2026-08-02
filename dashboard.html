@@ -281,7 +281,22 @@ function fmtEur(amount, sym) {
   if (!price || !amount) return '';
   const val = amount * price;
   if (val < 0.01) return '';
-  return `≈ €${val < 10 ? val.toFixed(2) : val < 1000 ? val.toFixed(1) : Math.round(val).toLocaleString()}`;
+  if (val < 10) return `€${val.toFixed(2)}`;
+  if (val < 1000) return `€${val.toFixed(1)}`;
+  return `€${Math.round(val).toLocaleString()}`;
+}
+
+function totalPortfolioEur(tokenMap) {
+  let total = 0;
+  let hasAny = false;
+  for (const [sym, amt] of Object.entries(tokenMap)) {
+    const price = PRICES[sym.toUpperCase()];
+    if (price && amt) { total += amt * price; hasAny = true; }
+  }
+  if (!hasAny) return '';
+  if (total < 10) return `€${total.toFixed(2)}`;
+  if (total < 1000) return `€${total.toFixed(1)}`;
+  return `€${Math.round(total).toLocaleString()}`;
 }
 function tokenIcon(sym){
   const S=esc(sym.toUpperCase()),url=TOKEN_LOGOS[sym.toUpperCase()],ini=esc(sym.slice(0,4).toUpperCase());
@@ -419,8 +434,7 @@ function render(s1,s2,set1,set2,a1,a2){
     const hasC=ck.length>0;
     const mainTok=(hasC?ck:tk).map(k=>{
       const v=hasC?ctokens[k]:tokens[k];
-      const eur=fmtEur(v,k);
-      return`<div class="r"><span class="k">${tokenIcon(k)} ${esc(k)}</span><span class="v grn">${fmt(v)}${eur?' <span style="font-size:10px;color:var(--dim);font-weight:400">'+eur+'</span>':''}</span></div>`;
+      return`<div class="r"><span class="k">${tokenIcon(k)} ${esc(k)}</span><span class="v grn">${fmt(v)}</span></div>`;
     }).join('');
     const gtokens=st.game_tokens||{};const gk=Object.keys(gtokens).sort((a,b)=>gtokens[b]-gtokens[a]);
     const gw=st.game_wins||0;
@@ -477,15 +491,23 @@ function render(s1,s2,set1,set2,a1,a2){
   if(allConfKeys.size>0){
     const all={};for(const k of allConfKeys)all[k]=(combConf[k]||0)+(combGame[k]||0)+(combTips[k]||0)+(MANUAL_TOKENS[k]||0);
     const keys=Object.keys(all).sort((a,b)=>all[b]-all[a]);
+    let portfolioTotal = 0;
     tokEl.innerHTML=keys.map(k=>{
       const t=all[k];let p=[];
       if(combConf[k])p.push(`🎯${fmt(combConf[k])}`);
       if(combGame[k])p.push(`🎮${fmt(combGame[k])}`);
       if(combTips[k])p.push(`🎁${fmt(combTips[k])}`);
       if(MANUAL_TOKENS[k])p.push(`✋${fmt(MANUAL_TOKENS[k])}`);
-      const eurVal = fmtEur(t, k);
-      return`<div class="tok"><div class="main"><span class="sym">${tokenIcon(k)} ${esc(k)}</span><span class="tot">${fmt(t)}${eurVal ? ' <span style="font-size:11px;color:var(--dim);font-weight:400">'+eurVal+'</span>' : ''}</span></div><div class="bd">${p.join(' · ')}</div></div>`;
+      const eur=fmtEur(t,k);
+      const price=PRICES[k.toUpperCase()];
+      if(price&&t)portfolioTotal+=t*price;
+      return`<div class="tok"><div class="main"><span class="sym">${tokenIcon(k)} ${esc(k)}</span><span class="tot">${fmt(t)}${eur?' <span style="font-size:11px;color:var(--dim);font-weight:400;margin-left:6px">${eur}</span>':''}</span></div><div class="bd">${p.join(' · ')}</div></div>`;
     }).join('');
+    // Portfolio total
+    if(portfolioTotal > 0){
+      const totalStr = portfolioTotal < 10 ? `€${portfolioTotal.toFixed(2)}` : portfolioTotal < 1000 ? `€${portfolioTotal.toFixed(1)}` : `€${Math.round(portfolioTotal).toLocaleString()}`;
+      tokEl.innerHTML += `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:baseline;"><span style="font-size:11px;color:var(--dim);text-transform:uppercase;font-weight:600;letter-spacing:.5px">Total value</span><span style="font-size:18px;font-weight:700;color:var(--amber)">${totalStr}</span></div>`;
+    }
   }else{
     for(const[k,v]of Object.entries(MANUAL_TOKENS))combEst[k]=(combEst[k]||0)+v;
     const keys=Object.keys(combEst).sort((a,b)=>combEst[b]-combEst[a]);
