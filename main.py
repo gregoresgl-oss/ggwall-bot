@@ -1,5 +1,5 @@
 """
-GGWALL Keyword Monitor Bot v3.0
+GGWALL.NET — Giveaway Auto-Claim Bot
 - Persistent data (Railway Volume /app/data)
 - Analytics (claims, win rate, timing)
 - Auto-detect new channels (sends link to you)
@@ -629,19 +629,19 @@ def menu_buttons():
         kw_label = "📋 Λέξεις"
 
     rows = [
-        [Button.inline(kw_label, b"keywords"), Button.inline("📡 Κανάλια", b"channels")],
-        [Button.inline("🏷️ Λέξεις κουμπιών", b"clickwords"), Button.inline("📊 Στατιστικά", b"stats")],
-        [Button.inline(f"⚡ Auto-click {ac}", b"toggle_ac"), Button.inline(f"🎯 Μόνο κουμπιά {bo}", b"toggle_bo")],
-        [Button.inline(sd_label, b"toggle_sd")],
-        [Button.inline("🎲 Ρυθμίσεις Human Mode", b"delays")],
+        [Button.inline(f"⚡ Auto-click {ac}", b"toggle_ac"), Button.inline(f"🎯 Buttons only {bo}", b"toggle_bo")],
+        [Button.inline(sd_label, b"toggle_sd"), Button.inline("⚙️ Jitter", b"delays")],
+        [Button.inline(kw_label, b"keywords"), Button.inline("🏷️ Click words", b"clickwords")],
+        [Button.inline("📡 Κανάλια", b"channels")],
+        [Button.inline("📊 Stats", b"stats")],
     ]
     dash = os.getenv('RAILWAY_PUBLIC_DOMAIN', '')
     dk = os.getenv('DASHBOARD_KEY', '')
     dash_qs = f"?key={dk}" if dk else ""
     if dash:
-        rows.append([Button.url("📈 Dashboard", f"https://{dash}{dash_qs}"), Button.inline("🔄 Ανανέωση", b"refresh")])
+        rows.append([Button.url("📈 Dashboard", f"https://{dash}{dash_qs}"), Button.inline("🔄 Refresh", b"refresh")])
     else:
-        rows.append([Button.inline("🔄 Ανανέωση", b"refresh")])
+        rows.append([Button.inline("🔄 Refresh", b"refresh")])
     return rows
 
 def menu_text():
@@ -652,8 +652,8 @@ def menu_text():
         upt = f"{up//60}m"
     else:
         upt = f"{up//3600}h {(up%3600)//60}m"
-    return (f"⚙️ **GGWALL Monitor** `v3.0`\n"
-            f"🟢 Online · uptime {upt}")
+    return (f"🌐 **GGWALL.NET**\n"
+            f"🟢 Online · {upt}")
 
 
 def build_submenu(kind):
@@ -1225,7 +1225,7 @@ def build_summary(period="daily"):
         lines.append("")
 
     lines.append("━━━━━━━━━━━━━━━━━━━━")
-    lines.append("_GGWALL Monitor · auto-report_")
+    lines.append("_🌐 GGWALL.NET_")
 
     return "\n".join(lines)
 
@@ -1270,7 +1270,7 @@ async def start_api():
 
 # ============ MAIN ============
 async def main():
-    logger.info("🚀 GGWALL Monitor v3.0...")
+    logger.info("🚀 GGWALL.NET starting...")
     # Backfill tokens από παλιά alerts (αν δεν έχουν καταγραφεί)
     try:
         if not stats.get("tokens"):
