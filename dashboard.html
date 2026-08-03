@@ -501,7 +501,7 @@ function render(s1,s2,set1,set2,a1,a2){
       const eur=fmtEur(t,k);
       const price=PRICES[k.toUpperCase()];
       if(price&&t)portfolioTotal+=t*price;
-      return`<div class="tok"><div class="main"><span class="sym">${tokenIcon(k)} ${esc(k)}</span><span class="tot">${fmt(t)}${eur?' <span style="font-size:11px;color:var(--dim);font-weight:400;margin-left:6px">'+eur+'</span>':''}</span></div><div class="bd">${p.join(' · ')}</div></div>`;
+      return`<div class="tok"><div class="main"><span class="sym">${tokenIcon(k)} ${esc(k)}</span><span class="tot">${fmt(t)}</span></div><div class="bd">${p.join(' · ')}${eur?' · <span style="color:var(--amber)">'+eur+'</span>':''}</div></div>`;
     }).join('');
     // Portfolio total
     if(portfolioTotal > 0){
