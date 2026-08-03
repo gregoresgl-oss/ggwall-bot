@@ -652,8 +652,8 @@ def menu_text():
         upt = f"{up//60}m"
     else:
         upt = f"{up//3600}h {(up%3600)//60}m"
-    return (f"🌐 **GGWALL.NET**\n"
-            f"🟢 Online · {upt}")
+    return (f"🌐 **GGWALL\u200b.NET**\n"
+            f"🟢 `Online` · {upt}")
 
 
 def build_submenu(kind):
