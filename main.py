@@ -57,9 +57,7 @@ DEFAULT_SETTINGS = {
     "auto_click": True,
     "buttons_only": True,
     "click_words": ["claim", "join"],
-    "detect_keywords": ["giveaway", "claim", "airdrop", "prize", "winner", "reward", "free", "drop", "distribution", "raffle", "contest"],
     "owner_id": None,
-    "auto_detect": True,  # ανίχνευση νέων καναλιών
     "smart_delay": True,       # human jitter + capacity safety
     "jitter_min": 8.0,         # ελάχιστο random delay πριν το claim
     "jitter_max": 15.0,        # μέγιστο random delay
@@ -72,7 +70,6 @@ DEFAULT_STATS = {
     "successful_clicks": 0,
     "failed_clicks": 0,
     "fastest_click": None,
-    "channels_detected": [],
     "tokens": {},          # tokens βάσει giveaway message (estimate)
     "confirmed_tokens": {},# tokens από giveaways (επιβεβαιωμένα)
     "game_tokens": {},     # tokens από minigames
@@ -214,9 +211,6 @@ async def fetch_my_channels():
     except Exception as e:
         logger.error(f"Fetch: {e}")
 
-# ============ AUTO-DETECT LINKS ============
-CHANNEL_LINK_RE = re.compile(r't\.me/(?:joinchat/)?([a-zA-Z0-9_+]+)')
-
 # ============ TOKEN PARSER ============
 # Έτοιμα patterns για τα βασικά νομίσματα (πιο αξιόπιστα)
 # Πιάνει: "0.38 $ATOM each", "2.17 $ATOM", "1,666.67 $ATOM1KLFG each"
@@ -321,76 +315,6 @@ async def smart_wait_and_check(chat_id, msg_id, target_delay, button_index):
         except Exception as e:
             logger.debug(f"Counter check: {e}")
     return round(waited, 2), "timer"
-
-
-
-async def check_new_channels(msg_text, chat_title=None, chat_username=None):
-    """Ψάχνει links για νέα κανάλια στο μήνυμα (μόνο με giveaway context)."""
-    if not settings.get("auto_detect", True):
-        return
-    if not owner_id:
-        return
-    try:
-        matches = CHANNEL_LINK_RE.findall(msg_text or "")
-        if not matches:
-            return
-
-        # ─── Filter A+B: πρέπει να ισχύει ένα από τα δύο ───
-        # A) Το μήνυμα περιέχει giveaway keyword
-        msg_lower = (msg_text or "").lower()
-        detect_kws = settings.get("detect_keywords", [])
-        matched_kw = None
-        for kw in detect_kws:
-            if kw.lower() in msg_lower:
-                matched_kw = kw
-                break
-
-        # B) Το μήνυμα προέρχεται από monitored channel
-        monitored = [c.lower() for c in settings.get("channels", [])]
-        from_monitored = chat_username and chat_username.lower() in monitored
-
-        # Αν κανένα από τα δύο δεν ισχύει, αγνόησε
-        if not matched_kw and not from_monitored:
-            return
-
-        # Ετοιμασία reason για το notification
-        if matched_kw and from_monitored:
-            reason = f'keyword _"{matched_kw}"_ + monitored channel'
-        elif matched_kw:
-            reason = f'keyword _"{matched_kw}"_'
-        else:
-            reason = "από monitored channel"
-
-        for m in matches:
-            clean = m.strip('+')
-            known = [c.lower() for c in settings.get("channels", [])]
-            known += [c["username"].lower() for c in my_channels if c["username"]]
-            already_detected = [c.lower() for c in stats.get("channels_detected", [])]
-            if clean.lower() in known or clean.lower() in already_detected:
-                continue
-
-            # Νέο κανάλι! Στείλε rich ειδοποίηση
-            stats.setdefault("channels_detected", []).append(clean)
-            save_stats(stats)
-
-            source = f"\n📍 Από: **{chat_title}**" if chat_title else ""
-            msg = (
-                f"🆕 **Νέο κανάλι εντοπίστηκε!**\n"
-                f"─────────────────────\n\n"
-                f"📡 `{clean}`\n"
-                f"🎯 Match: {reason}"
-                f"{source}\n\n"
-                f"_Θέλεις να το προσθέσεις;_"
-            )
-            buttons = [
-                [Button.url("🔗 Άνοιξε το κανάλι", f"https://t.me/{m}")],
-                [Button.inline("✅ Προσθήκη στη λίστα", f"ac_{clean}".encode()),
-                 Button.inline("❌ Αγνόησε", f"ic_{clean}".encode())]
-            ]
-            await bot_client.send_message(owner_id, msg, buttons=buttons, link_preview=False)
-            logger.info(f"🆕 New channel: {clean} (reason: {reason})")
-    except Exception as e:
-        logger.error(f"Detect error: {e}")
 
 # ============ COSMOBOT CONFIRMATION TRACKING ============
 # Regex για parse του confirmed amount: "claimed a giveaway of 0.2 $ATOM"
@@ -532,17 +456,6 @@ async def on_msg(event):
             return
 
         msg_text = event.message.text or ""
-
-        # Auto-detect νέων καναλιών (τρέχει πάντα)
-        chat_title = None
-        chat_username = None
-        try:
-            chat = await event.get_chat()
-            chat_title = getattr(chat, "title", None) or getattr(chat, "first_name", None)
-            chat_username = getattr(chat, "username", None)
-        except Exception:
-            pass
-        await check_new_channels(msg_text, chat_title, chat_username)
 
         if not settings.get("channels"):
             return
@@ -703,7 +616,6 @@ user_states = {}
 def menu_buttons():
     ac = "🟢" if settings.get("auto_click") else "🔴"
     bo = "🟢" if settings.get("buttons_only") else "🔴"
-    ad = "🟢" if settings.get("auto_detect") else "🔴"
     # Human Mode (jitter): κλειδωμένο αν Auto-click OFF
     if settings.get("auto_click"):
         sd = "🟢" if settings.get("smart_delay") else "🔴"
@@ -718,10 +630,9 @@ def menu_buttons():
 
     rows = [
         [Button.inline(kw_label, b"keywords"), Button.inline("📡 Κανάλια", b"channels")],
-        [Button.inline("🏷️ Λέξεις κουμπιών", b"clickwords"), Button.inline("🔍 Λέξεις ανίχνευσης", b"detectwords")],
-        [Button.inline("📊 Στατιστικά", b"stats")],
+        [Button.inline("🏷️ Λέξεις κουμπιών", b"clickwords"), Button.inline("📊 Στατιστικά", b"stats")],
         [Button.inline(f"⚡ Auto-click {ac}", b"toggle_ac"), Button.inline(f"🎯 Μόνο κουμπιά {bo}", b"toggle_bo")],
-        [Button.inline(f"🆕 Auto-detect {ad}", b"toggle_ad"), Button.inline(sd_label, b"toggle_sd")],
+        [Button.inline(sd_label, b"toggle_sd")],
         [Button.inline("🎲 Ρυθμίσεις Human Mode", b"delays")],
     ]
     dash = os.getenv('RAILWAY_PUBLIC_DOMAIN', '')
@@ -797,23 +708,6 @@ def build_submenu(kind):
         text = "🏷️ **Λέξεις Κουμπιών**\n─────────────────────\n\n" + ("\n".join(f"• {c}" for c in cl) if cl else "_Κενό_")
         return text, btns
 
-    elif kind == "detectwords":
-        dkw = settings.get("detect_keywords", [])
-        btns = [[Button.inline(f"🗑️ {c}", f"rmdk_{c}".encode())] for c in dkw]
-        btns.append([Button.inline("➕ Προσθήκη", b"add_dk")])
-        btns.append([Button.inline("← Πίσω", b"back")])
-        ad_status = "🟢 ON" if settings.get("auto_detect") else "🔴 OFF"
-        text = (
-            "🔍 **Λέξεις Ανίχνευσης**\n─────────────────────\n\n"
-            "Το bot προτείνει νέα κανάλια όταν το μήνυμα:\n"
-            "• Περιέχει κάποια από αυτές τις λέξεις, **ή**\n"
-            "• Προέρχεται από monitored κανάλι\n\n"
-            f"Auto-detect: {ad_status}\n\n"
-            "**Λέξεις:**\n"
-            + ("\n".join(f"• {x}" for x in dkw) if dkw else "_Κενό_")
-        )
-        return text, btns
-
     return None, None
 
 
@@ -825,7 +719,6 @@ STATE_TO_SUBMENU = {
     "ADD_KW": "keywords",
     "ADD_CH": "channels",
     "ADD_CW": "clickwords",
-    "ADD_DK": "detectwords",
 }
 
 
@@ -891,10 +784,6 @@ async def on_cb(event):
 
         elif data == "clickwords":
             text, btns = build_submenu("clickwords")
-            await event.edit(text, buttons=btns)
-
-        elif data == "detectwords":
-            text, btns = build_submenu("detectwords")
             await event.edit(text, buttons=btns)
 
         elif data == "stats":
@@ -995,9 +884,6 @@ async def on_cb(event):
         elif data == "toggle_bo":
             settings["buttons_only"] = not settings.get("buttons_only", True)
             save_settings(settings); await event.edit(menu_text(), buttons=menu_buttons())
-        elif data == "toggle_ad":
-            settings["auto_detect"] = not settings.get("auto_detect", True)
-            save_settings(settings); await event.edit(menu_text(), buttons=menu_buttons())
         elif data == "toggle_sd":
             if not settings.get("auto_click"):
                 await event.answer("🔒 Άναψε πρώτα το Auto-click!", alert=True)
@@ -1039,8 +925,6 @@ async def on_cb(event):
             user_states[event.sender_id] = "ADD_CH"; await event.edit("📝 Γράψε το κανάλι:")
         elif data == "add_cw":
             user_states[event.sender_id] = "ADD_CW"; await event.edit("📝 Γράψε τη λέξη κουμπιού:")
-        elif data == "add_dk":
-            user_states[event.sender_id] = "ADD_DK"; await event.edit("📝 Γράψε λέξη-κλειδί ανίχνευσης\n\n_π.χ. atomdrop, cosmodrop, δώρο_")
 
         elif data.startswith("pick_"):
             nm = data[5:]
@@ -1065,28 +949,6 @@ async def on_cb(event):
             if c in settings.get("click_words", []): settings["click_words"].remove(c); save_settings(settings)
             text, btns = build_submenu("clickwords")
             await event.edit(text, buttons=btns)
-
-        elif data.startswith("rmdk_"):
-            k = data[5:]
-            if k in settings.get("detect_keywords", []):
-                settings["detect_keywords"].remove(k); save_settings(settings)
-            text, btns = build_submenu("detectwords")
-            await event.edit(text, buttons=btns)
-
-        elif data.startswith("ac_"):
-            # Quick-add από notification
-            nm = data[3:]
-            if nm not in settings.get("channels", []):
-                settings.setdefault("channels", []).append(nm)
-                save_settings(settings)
-                await event.edit(f"✅ **Προστέθηκε στη λίστα!**\n\n📡 `{nm}`\n\n_Θυμήσου: πρέπει να μπεις στο κανάλι από τον λογαριασμό σου._")
-            else:
-                await event.edit(f"⚠️ Το `{nm}` υπάρχει ήδη στη λίστα.")
-
-        elif data.startswith("ic_"):
-            # Ignore από notification
-            nm = data[3:]
-            await event.edit(f"❌ **Αγνοήθηκε**\n\n📡 `{nm}`\n\n_Δεν θα σου ξαναπροταθεί._")
 
         elif data == "back":
             await event.edit(menu_text(), buttons=menu_buttons())
@@ -1127,13 +989,6 @@ async def on_text(event):
             if c and c not in settings.get("click_words", []):
                 settings.setdefault("click_words", []).append(c); save_settings(settings)
                 confirm_msg = f"✅ Button word: **{c}**"; changed = True
-            else:
-                confirm_msg = "⚠️ Υπάρχει"
-        elif st == "ADD_DK":
-            c = t.lower().strip()
-            if c and c not in settings.get("detect_keywords", []):
-                settings.setdefault("detect_keywords", []).append(c); save_settings(settings)
-                confirm_msg = f"✅ Detect keyword: **{c}**"; changed = True
             else:
                 confirm_msg = "⚠️ Υπάρχει"
         elif st in ("SET_JMIN", "SET_JMAX"):
@@ -1230,10 +1085,6 @@ async def a_purge_alerts(r):
         stats['total_alerts'] = max(0, stats.get('total_alerts', 0) - removed)
         stats['successful_clicks'] = max(0, stats.get('successful_clicks', 0) - successful_removed)
         stats['total_clicks'] = max(0, stats.get('total_clicks', 0) - successful_removed)
-
-        # Αφαίρεση από channels_detected (μη τα ξαναπροτείνει)
-        if channel in stats.get('channels_detected', []):
-            stats['channels_detected'].remove(channel)
 
         save_alerts(remaining)
         save_stats(stats)
@@ -1441,7 +1292,7 @@ async def main():
     await bot_client.start(bot_token=BOT_TOKEN); logger.info("✅ Bot!")
     await start_api()
     asyncio.create_task(summary_scheduler())
-    logger.info(f"✅ Ready! {len(settings.get('channels',[]))} channels, auto-detect:{settings.get('auto_detect')}, smart-delay:{settings.get('smart_delay')}")
+    logger.info(f"✅ Ready! {len(settings.get('channels',[]))} channels, smart-delay:{settings.get('smart_delay')}")
     await asyncio.gather(user_client.run_until_disconnected(), bot_client.run_until_disconnected())
 
 if __name__ == '__main__':
