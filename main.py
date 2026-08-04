@@ -1392,6 +1392,28 @@ async def main():
     await bot_client.start(bot_token=BOT_TOKEN); logger.info("✅ Bot!")
     await start_api()
     asyncio.create_task(summary_scheduler())
+
+    # Set Dashboard button δίπλα στο message input
+    try:
+        dash_domain = os.getenv('RAILWAY_PUBLIC_DOMAIN', '')
+        dk = os.getenv('DASHBOARD_KEY', '')
+        if dash_domain:
+            dash_url = f"https://{dash_domain}"
+            if dk:
+                dash_url += f"?key={dk}"
+            from telethon.tl.functions.bots import SetBotMenuButtonRequest
+            from telethon.tl.types import BotMenuButtonUrl
+            await bot_client(SetBotMenuButtonRequest(
+                user_id=owner_id or 0,
+                button=BotMenuButtonUrl(
+                    text="📈 GGWALL\u200b.NET",
+                    url=dash_url
+                )
+            ))
+            logger.info(f"📈 Dashboard button set")
+    except Exception as e:
+        logger.debug(f"Menu button: {e}")
+
     logger.info(f"✅ Ready! {len(settings.get('channels',[]))} channels, smart-delay:{settings.get('smart_delay')}")
     await asyncio.gather(user_client.run_until_disconnected(), bot_client.run_until_disconnected())
 
