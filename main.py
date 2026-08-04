@@ -656,28 +656,25 @@ async def on_msg(event):
 user_states = {}
 
 def menu_buttons():
-    ac = "🟢" if settings.get("auto_click") else "🔴"
-    bo = "🟢" if settings.get("buttons_only") else "🔴"
-    # Human Mode (jitter): κλειδωμένο αν Auto-click OFF
+    ac = "ON" if settings.get("auto_click") else "OFF"
+    bo = "ON" if settings.get("buttons_only") else "OFF"
     if settings.get("auto_click"):
-        sd = "🟢" if settings.get("smart_delay") else "🔴"
-        sd_label = f"🎲 Human Mode {sd}"
+        sd = "ON" if settings.get("smart_delay") else "OFF"
+        sd_label = f"🎲 Human · {sd}"
     else:
-        sd_label = "🎲 Human Mode 🔒"
-    # Λέξεις (text): κλειδωμένο αν Buttons Only ON (αγνοούνται)
+        sd_label = "🎲 Human · —"
     if settings.get("buttons_only"):
-        kw_label = "📋 Λέξεις 🔒"
+        kw_label = "📋 Λέξεις · —"
     else:
         kw_label = "📋 Λέξεις"
 
-    # Sleep mode
-    sl = "🟢" if settings.get("sleep_enabled") else "🔴"
+    sl = "ON" if settings.get("sleep_enabled") else "OFF"
     sl_h = f"{settings.get('sleep_start',3):02d}:00-{settings.get('sleep_end',7):02d}:00"
 
     rows = [
-        [Button.inline(f"⚡ Auto-click {ac}", b"toggle_ac"), Button.inline(f"🎯 Buttons only {bo}", b"toggle_bo")],
+        [Button.inline(f"⚡ Auto-click · {ac}", b"toggle_ac"), Button.inline(f"🎯 Buttons · {bo}", b"toggle_bo")],
         [Button.inline(sd_label, b"toggle_sd"), Button.inline("⚙️ Jitter", b"delays")],
-        [Button.inline(f"😴 Sleep {sl}", b"toggle_sleep"), Button.inline(f"🕐 {sl_h}", b"sleep_cfg")],
+        [Button.inline(f"😴 Sleep · {sl}", b"toggle_sleep"), Button.inline(f"🕐 {sl_h}", b"sleep_cfg")],
         [Button.inline(kw_label, b"keywords"), Button.inline("🏷️ Click words", b"clickwords")],
         [Button.inline("📡 Κανάλια", b"channels")],
         [Button.inline("📊 Stats", b"stats")],
