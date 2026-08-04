@@ -61,7 +61,10 @@ DEFAULT_SETTINGS = {
     "smart_delay": True,       # human jitter + capacity safety
     "jitter_min": 8.0,         # ελάχιστο random delay πριν το claim
     "jitter_max": 15.0,        # μέγιστο random delay
-    "capacity_threshold": 70   # % πληρότητας → πάτα ΤΩΡΑ (ασφάλεια)
+    "capacity_threshold": 70,  # % πληρότητας → πάτα ΤΩΡΑ (ασφάλεια)
+    "sleep_enabled": False,    # ώρες ύπνου on/off
+    "sleep_start": 3,          # ώρα έναρξης ύπνου (0-23)
+    "sleep_end": 7             # ώρα λήξης ύπνου (0-23)
 }
 
 DEFAULT_STATS = {
@@ -269,6 +272,20 @@ def parse_counter(button_text):
         except:
             return None, None
     return None, None
+
+
+def is_sleeping():
+    """Ελέγχει αν ο bot 'κοιμάται' (εντός ωρών ύπνου)."""
+    if not settings.get("sleep_enabled", False):
+        return False
+    import datetime
+    now_h = datetime.datetime.now().hour
+    start = settings.get("sleep_start", 3)
+    end = settings.get("sleep_end", 7)
+    if start < end:
+        return start <= now_h < end        # π.χ. 3-7
+    else:
+        return now_h >= start or now_h < end  # π.χ. 23-6 (overnight)
 
 
 def pick_jitter_delay():
@@ -565,6 +582,10 @@ async def on_msg(event):
         # Auto-click
         clicked = False; ctime = ""
         if settings.get("auto_click", False) and found_btn:
+            # Sleep mode check
+            if is_sleeping():
+                logger.debug("😴 Sleeping — skipped claim")
+                return
             # Human jitter + capacity safety check
             wait_reason = "instant"
             waited_time = 0.0
@@ -649,9 +670,14 @@ def menu_buttons():
     else:
         kw_label = "📋 Λέξεις"
 
+    # Sleep mode
+    sl = "🟢" if settings.get("sleep_enabled") else "🔴"
+    sl_h = f"{settings.get('sleep_start',3):02d}:00-{settings.get('sleep_end',7):02d}:00"
+
     rows = [
         [Button.inline(f"⚡ Auto-click {ac}", b"toggle_ac"), Button.inline(f"🎯 Buttons only {bo}", b"toggle_bo")],
         [Button.inline(sd_label, b"toggle_sd"), Button.inline("⚙️ Jitter", b"delays")],
+        [Button.inline(f"😴 Sleep {sl}", b"toggle_sleep"), Button.inline(f"🕐 {sl_h}", b"sleep_cfg")],
         [Button.inline(kw_label, b"keywords"), Button.inline("🏷️ Click words", b"clickwords")],
         [Button.inline("📡 Κανάλια", b"channels")],
         [Button.inline("📊 Stats", b"stats")],
@@ -729,6 +755,27 @@ def build_submenu(kind):
         text = "🏷️ **Λέξεις Κουμπιών**\n─────────────────────\n\n" + ("\n".join(f"• {c}" for c in cl) if cl else "_Κενό_")
         return text, btns
 
+    elif kind == "sleep":
+        s = settings.get("sleep_start", 3)
+        e = settings.get("sleep_end", 7)
+        sl = "🟢 ON" if settings.get("sleep_enabled") else "🔴 OFF"
+        sleeping = "😴 **Κοιμάται τώρα!**\n\n" if is_sleeping() else ""
+        text = (
+            f"😴 **Ώρες Ύπνου**\n"
+            f"─────────────────────\n\n"
+            f"{sleeping}"
+            f"Το bot **δεν** κάνει claim μεταξύ:\n\n"
+            f"🕐 **{s:02d}:00** → **{e:02d}:00**\n\n"
+            f"Status: {sl}\n\n"
+            f"_Πάτησε για αλλαγή:_"
+        )
+        btns = [
+            [Button.inline(f"🕐 Αρχή: {s:02d}:00", b"set_sleep_s"),
+             Button.inline(f"🕐 Τέλος: {e:02d}:00", b"set_sleep_e")],
+            [Button.inline("← Πίσω", b"back")]
+        ]
+        return text, btns
+
     return None, None
 
 
@@ -737,6 +784,8 @@ STATE_TO_SUBMENU = {
     "SET_JMIN": "delays",
     "SET_JMAX": "delays",
     "SET_CAP": "delays",
+    "SET_SLEEP_S": "sleep",
+    "SET_SLEEP_E": "sleep",
     "ADD_KW": "keywords",
     "ADD_CH": "channels",
     "ADD_CW": "clickwords",
@@ -921,6 +970,41 @@ async def on_cb(event):
                 save_settings(settings)
                 await event.edit(menu_text(), buttons=menu_buttons())
 
+        elif data == "toggle_sleep":
+            settings["sleep_enabled"] = not settings.get("sleep_enabled", False)
+            save_settings(settings)
+            st = "ON 😴" if settings["sleep_enabled"] else "OFF ⚡"
+            await event.answer(f"Sleep mode: {st}", alert=False)
+            await event.edit(menu_text(), buttons=menu_buttons())
+
+        elif data == "sleep_cfg":
+            s = settings.get("sleep_start", 3)
+            e = settings.get("sleep_end", 7)
+            sl = "🟢 ON" if settings.get("sleep_enabled") else "🔴 OFF"
+            sleeping = "😴 **Κοιμάται τώρα!**\n\n" if is_sleeping() else ""
+            text = (
+                f"😴 **Ώρες Ύπνου**\n"
+                f"─────────────────────\n\n"
+                f"{sleeping}"
+                f"Το bot **δεν** κάνει claim μεταξύ:\n\n"
+                f"🕐 **{s:02d}:00** → **{e:02d}:00**\n\n"
+                f"Status: {sl}\n\n"
+                f"_Πάτησε για αλλαγή:_"
+            )
+            btns = [
+                [Button.inline(f"🕐 Αρχή: {s:02d}:00", b"set_sleep_s"),
+                 Button.inline(f"🕐 Τέλος: {e:02d}:00", b"set_sleep_e")],
+                [Button.inline("← Πίσω", b"back")]
+            ]
+            await event.edit(text, buttons=btns)
+
+        elif data == "set_sleep_s":
+            user_states[event.sender_id] = "SET_SLEEP_S"
+            await event.edit("🕐 Γράψε την **ώρα έναρξης** ύπνου (0-23):\n\n_π.χ. 3 (= 03:00)_")
+        elif data == "set_sleep_e":
+            user_states[event.sender_id] = "SET_SLEEP_E"
+            await event.edit("🕐 Γράψε την **ώρα λήξης** ύπνου (0-23):\n\n_π.χ. 7 (= 07:00)_")
+
         elif data == "delays":
             text, btns = build_submenu("delays")
             await event.edit(text, buttons=btns)
@@ -1052,6 +1136,19 @@ async def on_text(event):
                     changed = True
             except ValueError:
                 confirm_msg = "⚠️ Βάλε έγκυρο αριθμό (π.χ. 70)"
+        elif st in ("SET_SLEEP_S", "SET_SLEEP_E"):
+            try:
+                val = int(float(t.strip()))
+                if val < 0 or val > 23:
+                    confirm_msg = "⚠️ Βάλε ώρα 0-23"
+                else:
+                    key = "sleep_start" if st == "SET_SLEEP_S" else "sleep_end"
+                    settings[key] = val
+                    save_settings(settings)
+                    confirm_msg = f"✅ {'Αρχή' if st == 'SET_SLEEP_S' else 'Τέλος'} ύπνου: **{val:02d}:00**"
+                    changed = True
+            except ValueError:
+                confirm_msg = "⚠️ Βάλε έγκυρο αριθμό (π.χ. 3)"
 
         # Στείλε επιβεβαίωση και ΞΑΝΑ το menu (για να μη χρειάζεται /start)
         menu_kind = STATE_TO_SUBMENU.get(st)
