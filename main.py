@@ -78,6 +78,7 @@ DEFAULT_STATS = {
     "real_failed": 0,      # επιβεβαιωμένες αποτυχίες giveaway
     "game_wins": 0,        # πόσα games κέρδισα
     "tips_received": 0,    # πόσα tips έλαβα
+    "withdrawals": {},     # tokens που έκανα withdraw {"ATOM": 50.0}
     "daily": {}  # {"2026-07-27": {"alerts": 5, "claims": 4, "tokens": {"ATOM": 1.2}}}
 }
 
@@ -328,6 +329,8 @@ GAME_WON_RE = re.compile(r'won\s+([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})', re.
 GAME_PLACE_RE = re.compile(r'placed\s+(\d+)(?:st|nd|rd|th)', re.IGNORECASE)
 # Regex για tip: "just sent you 0.5 $ATOM"
 TIP_RE = re.compile(r'sent you\s+([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})', re.IGNORECASE)
+# Regex για withdraw: "Withdrew 16 $ATOM to cosmos13..."
+WITHDRAW_RE = re.compile(r'Withdrew\s+([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})', re.IGNORECASE)
 
 @user_client.on(events.NewMessage(from_users='ibc_cosmobot'))
 async def on_cosmobot_dm(event):
@@ -402,6 +405,24 @@ async def on_cosmobot_dm(event):
                 await bot_client.send_message(owner_id,
                     f"🎁 **Tip!**\n\nΚάποιος σου έστειλε **{amt:g} ${sym}** 💝", link_preview=False)
             logger.info(f"🎁 Tip: {amt} {sym}")
+
+        # 💸 WITHDRAW: "Withdrew 16 $ATOM to cosmos13..."
+        elif "withdrew" in tl and "successful" in tl:
+            m = WITHDRAW_RE.search(text)
+            amt, sym = None, None
+            if m:
+                try:
+                    amt = float(m.group(1).replace(",", ""))
+                    sym = m.group(2).upper()
+                except Exception:
+                    pass
+            if amt and sym:
+                stats.setdefault("withdrawals", {})
+                stats["withdrawals"][sym] = round(stats["withdrawals"].get(sym, 0) + amt, 4)
+                save_stats(stats)
+                await bot_client.send_message(owner_id,
+                    f"💸 **Withdraw!**\n\nΈκανες withdraw **{amt:g} ${sym}** 💰", link_preview=False)
+            logger.info(f"💸 Withdraw: {amt} {sym}")
 
         # ❌ ΑΠΟΤΥΧΙΑ — Requirements
         elif "don't meet the requirements" in tl or "do not meet the requirements" in tl:
@@ -845,6 +866,14 @@ async def on_cb(event):
                     f"  • {v:g} ${k}" for k, v in sorted_t[:6]
                 )
 
+            # Withdrawals
+            wtoks = stats.get("withdrawals", {})
+            if wtoks:
+                sorted_w = sorted(wtoks.items(), key=lambda x: -x[1])
+                token_sections += "\n\n💸 **Withdrawals:**\n" + "\n".join(
+                    f"  • {v:g} ${k}" for k, v in sorted_w[:6]
+                )
+
             if not token_sections and not has_confirmed:
                 token_sections = "\n\n_Δεν υπάρχουν ακόμα confirmed data._"
 
@@ -1201,31 +1230,8 @@ def build_summary(period="daily"):
         lines.append(f"📉 Μ.Ο. ημέρας:  **{avg}** claims")
         lines.append("")
 
-    # All-time income από όλες τις πηγές
-    rc = stats.get("real_claims", 0)
-    rf = stats.get("real_failed", 0)
-    ctoks = stats.get("confirmed_tokens", {})
-    gtoks = stats.get("game_tokens", {})
-    ttoks = stats.get("tip_tokens", {})
-    gw = stats.get("game_wins", 0)
-    tr = stats.get("tips_received", 0)
-    has_income = rc > 0 or rf > 0 or ctoks or gtoks or ttoks
-    if has_income:
-        lines.append("─ _all-time income_ ─")
-        if rc > 0 or rf > 0:
-            parts = [f"{_fmt_tok(v)} ${k}" for k, v in sorted(ctoks.items(), key=lambda x: -x[1])[:3]]
-            tok_str = (" — " + " · ".join(parts)) if parts else ""
-            lines.append(f"🎯 Giveaways: {rc}✅/{rf}❌{tok_str}")
-        if gtoks:
-            parts = [f"{_fmt_tok(v)} ${k}" for k, v in sorted(gtoks.items(), key=lambda x: -x[1])[:3]]
-            lines.append(f"🎮 Games ({gw}): " + " · ".join(parts))
-        if ttoks:
-            parts = [f"{_fmt_tok(v)} ${k}" for k, v in sorted(ttoks.items(), key=lambda x: -x[1])[:3]]
-            lines.append(f"🎁 Tips ({tr}): " + " · ".join(parts))
-        lines.append("")
-
     lines.append("━━━━━━━━━━━━━━━━━━━━")
-    lines.append("_🌐 GGWALL.NET_")
+    lines.append("_🌐 GGWALL\u200b.NET_")
 
     return "\n".join(lines)
 

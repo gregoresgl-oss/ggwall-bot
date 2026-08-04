@@ -180,6 +180,16 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
       <div id="cfg-tok-list" class="cfg-list"></div>
     </div>
     <div class="cfg-sect">
+      <div class="lbl">Manual withdraw adjustments</div>
+      <div class="cfg-help">Pre-bot withdrawals. Shown in dashboard totals.</div>
+      <div class="row">
+        <input id="cfg-wd-sym" placeholder="ATOM" style="flex:0 1 120px;text-transform:uppercase;" />
+        <input id="cfg-wd-amt" placeholder="50" style="flex:0 1 140px;" />
+        <button onclick="addManualWithdraw()">Add</button>
+      </div>
+      <div id="cfg-wd-list" class="cfg-list"></div>
+    </div>
+    <div class="cfg-sect">
       <div class="lbl">Delete alerts from channel</div>
       <div class="cfg-help">Permanently removes alerts and adjusts stats.</div>
       <div class="row">
@@ -228,6 +238,7 @@ let REMOTE=localStorage.getItem('ggwall_bot2_url')||'';
 let BOT1_NAME=localStorage.getItem('ggwall_bot1_name')||'GGWALL';
 let BOT2_NAME=localStorage.getItem('ggwall_bot2_name')||'GGWALL2';
 let MANUAL_TOKENS=JSON.parse(localStorage.getItem('ggwall_manual_tokens')||'{}');
+let MANUAL_WITHDRAWALS=JSON.parse(localStorage.getItem('ggwall_manual_withdrawals')||'{}');
 let ALL_CHANNELS=new Set();
 
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
@@ -508,6 +519,15 @@ function render(s1,s2,set1,set2,a1,a2){
       const totalStr = portfolioTotal < 10 ? `€${portfolioTotal.toFixed(2)}` : portfolioTotal < 1000 ? `€${portfolioTotal.toFixed(1)}` : `€${Math.round(portfolioTotal).toLocaleString()}`;
       tokEl.innerHTML += `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:baseline;"><span style="font-size:11px;color:var(--dim);text-transform:uppercase;font-weight:600;letter-spacing:.5px">Total value</span><span style="font-size:18px;font-weight:700;color:var(--amber)">${totalStr}</span></div>`;
     }
+    // Withdrawals
+    const combWd={};
+    for(const src of[(s1?.withdrawals||{}),(s2?.withdrawals||{})]){for(const[k,v]of Object.entries(src))combWd[k]=(combWd[k]||0)+v;}
+    for(const[k,v]of Object.entries(MANUAL_WITHDRAWALS))combWd[k]=(combWd[k]||0)+v;
+    const wdKeys=Object.keys(combWd).sort((a,b)=>combWd[b]-combWd[a]);
+    if(wdKeys.length>0){
+      tokEl.innerHTML += `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);"><div style="font-size:11px;color:var(--dim);text-transform:uppercase;font-weight:600;letter-spacing:.5px;margin-bottom:10px">💸 Withdrawn</div>` +
+        wdKeys.map(k=>`<div class="tok"><div class="main"><span class="sym">${tokenIcon(k)} ${esc(k)}</span><span class="tot" style="color:var(--red)">${fmt(combWd[k])}</span></div></div>`).join('') + `</div>`;
+    }
   }else{
     for(const[k,v]of Object.entries(MANUAL_TOKENS))combEst[k]=(combEst[k]||0)+v;
     const keys=Object.keys(combEst).sort((a,b)=>combEst[b]-combEst[a]);
@@ -518,7 +538,7 @@ function render(s1,s2,set1,set2,a1,a2){
 }
 
 // Config
-function showCfg(){document.getElementById('cfg-n1').value=BOT1_NAME;document.getElementById('cfg-n2').value=BOT2_NAME;document.getElementById('cfg-u2').value=REMOTE||'';document.getElementById('cfg-panel').style.display='block';document.getElementById('cfg-cancel').style.display=REMOTE?'inline-block':'none';renderManualTokens();renderPurgeDropdown();}
+function showCfg(){document.getElementById('cfg-n1').value=BOT1_NAME;document.getElementById('cfg-n2').value=BOT2_NAME;document.getElementById('cfg-u2').value=REMOTE||'';document.getElementById('cfg-panel').style.display='block';document.getElementById('cfg-cancel').style.display=REMOTE?'inline-block':'none';renderManualTokens();renderManualWithdraws();renderPurgeDropdown();}
 function hideCfg(){document.getElementById('cfg-panel').style.display='none';}
 function saveConfig(){
   BOT1_NAME=document.getElementById('cfg-n1').value.trim()||'GGWALL';
@@ -547,6 +567,23 @@ function addManualToken(){
   sE.value='';aE.value='';renderManualTokens();load();
 }
 function removeManualToken(sym){if(!confirm('Remove $'+sym+'?'))return;delete MANUAL_TOKENS[sym];localStorage.setItem('ggwall_manual_tokens',JSON.stringify(MANUAL_TOKENS));renderManualTokens();load();}
+function renderManualWithdraws(){
+  const el=document.getElementById('cfg-wd-list');const keys=Object.keys(MANUAL_WITHDRAWALS).sort();
+  el.innerHTML=keys.length===0?'<div class="empty">none</div>':keys.map(k=>
+    `<div class="item"><span>$${esc(k)}: ${fmt(MANUAL_WITHDRAWALS[k])}</span><button class="rm" onclick="removeManualWithdraw('${esc(k)}')">×</button></div>`
+  ).join('');
+}
+function addManualWithdraw(){
+  const sE=document.getElementById('cfg-wd-sym'),aE=document.getElementById('cfg-wd-amt');
+  const sym=sE.value.trim().toUpperCase().replace(/^\$/,'').replace(/[^A-Z0-9]/g,'');
+  const amt=parseFloat(aE.value.trim().replace(',','.'));
+  if(!sym||sym.length<1||sym.length>16){alert('Invalid symbol');return;}
+  if(isNaN(amt)||amt<=0){alert('Invalid amount');return;}
+  MANUAL_WITHDRAWALS[sym]=(MANUAL_WITHDRAWALS[sym]||0)+amt;
+  localStorage.setItem('ggwall_manual_withdrawals',JSON.stringify(MANUAL_WITHDRAWALS));
+  sE.value='';aE.value='';renderManualWithdraws();load();
+}
+function removeManualWithdraw(sym){if(!confirm('Remove $'+sym+' withdraw?'))return;delete MANUAL_WITHDRAWALS[sym];localStorage.setItem('ggwall_manual_withdrawals',JSON.stringify(MANUAL_WITHDRAWALS));renderManualWithdraws();load();}
 function renderPurgeDropdown(){
   const sel=document.getElementById('cfg-purge-ch');
   sel.innerHTML='<option value="">— select —</option>'+Array.from(ALL_CHANNELS).sort().map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
