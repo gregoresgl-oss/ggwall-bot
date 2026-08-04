@@ -660,9 +660,8 @@ def menu_buttons():
     bo = "ON" if settings.get("buttons_only") else "OFF"
     if settings.get("auto_click"):
         sd = "ON" if settings.get("smart_delay") else "OFF"
-        sd_label = f"🎲 Human · {sd}"
     else:
-        sd_label = "🎲 Human · —"
+        sd = "—"
     if settings.get("buttons_only"):
         kw_label = "📋 Λέξεις · —"
     else:
@@ -672,11 +671,13 @@ def menu_buttons():
     sl_h = f"{settings.get('sleep_start',3):02d}:00-{settings.get('sleep_end',7):02d}:00"
 
     rows = [
-        [Button.inline(f"⚡ Auto-click · {ac}", b"toggle_ac"), Button.inline(f"🎯 Buttons · {bo}", b"toggle_bo")],
-        [Button.inline(sd_label, b"toggle_sd"), Button.inline("⚙️ Jitter", b"delays")],
-        [Button.inline(f"😴 Sleep · {sl}", b"toggle_sleep"), Button.inline(f"🕐 {sl_h}", b"sleep_cfg")],
-        [Button.inline(kw_label, b"keywords"), Button.inline("🏷️ Click words", b"clickwords")],
-        [Button.inline("📡 Κανάλια", b"channels")],
+        # ── Toggles (3 ανά σειρά) ──
+        [Button.inline(f"⚡ Auto · {ac}", b"toggle_ac"), Button.inline(f"🎲 Human · {sd}", b"toggle_sd"), Button.inline(f"😴 Sleep · {sl}", b"toggle_sleep")],
+        # ── Settings ──
+        [Button.inline(f"🎯 Buttons · {bo}", b"toggle_bo"), Button.inline("⚙️ Jitter", b"delays"), Button.inline(f"🕐 {sl_h}", b"sleep_cfg")],
+        # ── Filters ──
+        [Button.inline(kw_label, b"keywords"), Button.inline("🏷️ Click words", b"clickwords"), Button.inline("📡 Κανάλια", b"channels")],
+        # ── Actions ──
         [Button.inline("📊 Stats", b"stats")],
     ]
     dash = os.getenv('RAILWAY_PUBLIC_DOMAIN', '')
