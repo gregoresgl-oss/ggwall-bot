@@ -1339,7 +1339,7 @@ async def summary_scheduler():
         try:
             now = datetime.datetime.now()
             # Στις 22:00 (ελέγχει στο παράθυρο 22:00-22:04)
-            if now.hour == 22 and now.minute < 5:
+            if now.hour == 0 and now.minute < 5:
                 today_str = now.strftime("%Y-%m-%d")
                 if last_sent_date != today_str and owner_id:
                     # Daily πάντα
