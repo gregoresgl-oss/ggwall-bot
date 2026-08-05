@@ -31,7 +31,7 @@ BOT_TOKEN = os.getenv('BOT_TOKEN', '')
 SESSION_STRING = os.getenv('SESSION_STRING', '')
 # Owner lock: μόνο αυτό το user ID μπορεί να χρησιμοποιήσει το bot
 # Αν είναι κενό, ο πρώτος που κάνει /start γίνεται owner (μία φορά)
-AUTHORIZED_USER_ID = int(os.getenv('AUTHORIZED_USER_ID', '0'))
+AUTHORIZED_USER_IDS = [int(x.strip()) for x in os.getenv('AUTHORIZED_USER_ID', '0').split(',') if x.strip().isdigit()]
 
 if not API_ID or not API_HASH or not BOT_TOKEN:
     logger.error("Missing credentials!")
@@ -483,6 +483,8 @@ async def on_cosmobot_dm(event):
 
 
 # ============ MONITORING ============
+_chat_cache = {}  # {chat_id: {"user": username, "title": title, "ts": timestamp}}
+
 @user_client.on(events.NewMessage())
 @user_client.on(events.MessageEdited())
 async def on_msg(event):
@@ -508,14 +510,22 @@ async def on_msg(event):
         if dedup in seen_messages:
             return
 
-        try:
-            chat = await event.get_chat()
-        except Exception:
-            return
+        # Fast chat lookup (cached)
+        cid = event.chat_id
+        cached = _chat_cache.get(cid)
+        if cached and (time.time() - cached["ts"]) < 3600:  # cache 1h
+            c_user = cached["user"]
+            c_title = cached["title"]
+        else:
+            try:
+                chat = await event.get_chat()
+            except Exception:
+                return
+            c_user = (getattr(chat, 'username', '') or '').lower()
+            c_title = (getattr(chat, 'title', '') or '').lower()
+            _chat_cache[cid] = {"user": c_user, "title": c_title, "ts": time.time()}
 
-        c_user = (getattr(chat, 'username', '') or '').lower()
-        c_title = (getattr(chat, 'title', '') or '').lower()
-        c_id = str(event.chat_id)
+        c_id = str(cid)
 
         monitored = False
         for ch in settings["channels"]:
@@ -792,9 +802,9 @@ STATE_TO_SUBMENU = {
 
 def is_authorized(user_id):
     """Ελέγχει αν ο χρήστης έχει δικαίωμα να χρησιμοποιήσει το bot"""
-    # Αν έχει οριστεί AUTHORIZED_USER_ID, μόνο αυτός επιτρέπεται
-    if AUTHORIZED_USER_ID:
-        return user_id == AUTHORIZED_USER_ID
+    # Αν έχει οριστεί AUTHORIZED_USER_ID, μόνο αυτοί επιτρέπονται
+    if AUTHORIZED_USER_IDS and AUTHORIZED_USER_IDS != [0]:
+        return user_id in AUTHORIZED_USER_IDS
     # Αλλιώς, μόνο ο αποθηκευμένος owner (πρώτος που έκανε /start)
     saved = settings.get("owner_id")
     if saved:
