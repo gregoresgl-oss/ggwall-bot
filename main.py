@@ -678,7 +678,7 @@ def menu_buttons():
         # ── Filters ──
         [Button.inline(kw_label, b"keywords"), Button.inline("🏷️ Click words", b"clickwords"), Button.inline("📡 Κανάλια", b"channels")],
         # ── Actions ──
-        [Button.inline("📊 Stats", b"stats")],
+        [Button.inline("📊 Stats", b"stats"), Button.inline("❓ Help", b"help")],
     ]
     dash = os.getenv('RAILWAY_PUBLIC_DOMAIN', '')
     dk = os.getenv('DASHBOARD_KEY', '')
@@ -1060,6 +1060,69 @@ async def on_cb(event):
             if c in settings.get("click_words", []): settings["click_words"].remove(c); save_settings(settings)
             text, btns = build_submenu("clickwords")
             await event.edit(text, buttons=btns)
+
+        elif data == "help":
+            help_text = (
+                "❓ **GGWALL\u200b.NET — Οδηγός**\n"
+                "━━━━━━━━━━━━━━━━━━━━\n\n"
+
+                "**⚡ Auto-click**\n"
+                "Πατάει αυτόματα τα claim buttons\n"
+                "στα giveaways που ταιριάζουν.\n\n"
+
+                "**🎲 Human Mode**\n"
+                "Προσθέτει τυχαία καθυστέρηση\n"
+                "πριν το claim (jitter), ώστε να μη\n"
+                "φαίνεται bot. Ρυθμιζόμενο range.\n\n"
+
+                "**😴 Sleep Mode**\n"
+                "Ώρες που το bot δεν κάνει claim.\n"
+                "Κανένας άνθρωπος δεν πατάει\n"
+                "giveaway στις 4 τα ξημερώματα.\n\n"
+
+                "**🎯 Buttons Only**\n"
+                "Ψάχνει μόνο inline buttons\n"
+                "(Claim, Join) — αγνοεί text matches.\n"
+                "Πιο ακριβές, λιγότερα false alerts.\n\n"
+
+                "**⚙️ Jitter**\n"
+                "Ρυθμίσεις Human Mode:\n"
+                "• Min/Max delay σε δευτερόλεπτα\n"
+                "• Safety %: αν γεμίσει τόσο,\n"
+                "  πατάει αμέσως (να μη χάσει)\n\n"
+
+                "**🕐 Sleep Hours**\n"
+                "Ρυθμίσεις ωρών ύπνου.\n"
+                "Υποστηρίζει overnight (π.χ. 23-06).\n\n"
+
+                "**📋 Λέξεις**\n"
+                "Keywords που ψάχνει στα μηνύματα.\n"
+                "Αν βρει αυτές τις λέξεις → alert.\n"
+                "Κλειδώνεται αν Buttons Only = ON.\n\n"
+
+                "**🏷️ Click Words**\n"
+                "Λέξεις που ψάχνει στα buttons\n"
+                "(π.χ. claim, join). Αν ταιριάξει → click.\n\n"
+
+                "**📡 Κανάλια**\n"
+                "Τα κανάλια που παρακολουθεί.\n"
+                "Πρόσθεσε/αφαίρεσε από τη λίστα.\n\n"
+
+                "**📊 Stats**\n"
+                "Αναλυτικά στατιστικά:\n"
+                "• Confirmed claims από Cosmobot\n"
+                "• Tokens: giveaways, games, tips\n"
+                "• Daily & weekly αναφορές\n\n"
+
+                "**📈 Dashboard**\n"
+                "Web dashboard με charts, tokens,\n"
+                "τιμές σε €, και ρυθμίσεις.\n"
+                "Προστατεύεται με password.\n\n"
+
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "_🌐 GGWALL\u200b.NET_"
+            )
+            await event.edit(help_text, buttons=[[Button.inline("← Πίσω", b"back")]])
 
         elif data == "back":
             await event.edit(menu_text(), buttons=menu_buttons())
