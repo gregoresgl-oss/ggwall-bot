@@ -598,7 +598,24 @@ async def on_msg(event):
             wait_reason = "instant"
             waited_time = 0.0
             if settings.get("smart_delay", True):
-                target = pick_jitter_delay()
+                # Check αν είναι μικρό giveaway (≤5 άτομα) → γρήγορο click
+                small_giveaway = False
+                try:
+                    for b in found_btn:
+                        cur, tot = parse_counter(b.text)
+                        if tot is not None and tot <= 5:
+                            small_giveaway = True
+                            break
+                except Exception:
+                    pass
+
+                if small_giveaway:
+                    # Μικρό giveaway → πολύ σύντομο delay (0-2s)
+                    target = round(random.uniform(0, 2), 2)
+                    logger.info(f"🏃 Small giveaway ({tot} spots)! Fast jitter {target}s")
+                else:
+                    target = pick_jitter_delay()
+
                 # Βρες το index του button (για re-check)
                 btn_idx = 0
                 try:
@@ -637,7 +654,12 @@ async def on_msg(event):
                     save_stats(stats)
                     # Notification
                     if waited_time > 0:
-                        tag = "⚡ γέμιζε!" if wait_reason == "capacity" else "🎲 jitter"
+                        if wait_reason == "capacity":
+                            tag = "⚡ γέμιζε!"
+                        elif small_giveaway:
+                            tag = "🏃 μικρό!"
+                        else:
+                            tag = "🎲 jitter"
                         notif = f"✅ Auto-click: **{b.text}**  `({tag} {waited_time:g}s + click {ctime})`"
                     else:
                         notif = f"✅ Auto-click: **{b.text}**  `(instant + click {ctime})`"
