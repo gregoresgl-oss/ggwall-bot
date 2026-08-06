@@ -1323,12 +1323,21 @@ def build_summary(period="daily"):
     daily = stats.get("daily", {})
 
     if period == "daily":
-        target = time.strftime("%Y-%m-%d")
+        # Στα μεσάνυχτα (00:00-00:05) δείξε τη ΧΘΕΣΙΝΗ μέρα
+        import datetime
+        now = datetime.datetime.now()
+        if now.hour == 0:
+            yesterday = (now - datetime.timedelta(days=1)).date()
+            target = yesterday.strftime("%Y-%m-%d")
+            date_label = yesterday.strftime("%d/%m/%Y")
+        else:
+            target = time.strftime("%Y-%m-%d")
+            date_label = time.strftime("%d/%m/%Y")
         days = [target]
         title = "📊 **ΗΜΕΡΗΣΙΑ ΑΝΑΦΟΡΑ**"
-        date_label = time.strftime("%d/%m/%Y")
     else:
         # τελευταίες 7 μέρες
+        import datetime
         today = datetime.date.today()
         days = [(today - datetime.timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
         title = "📈 **ΕΒΔΟΜΑΔΙΑΙΑ ΑΝΑΦΟΡΑ**"
