@@ -557,7 +557,7 @@ async def on_msg(event):
         if len(seen_messages) > 500:
             seen_messages.clear()
 
-        real_title = getattr(chat, 'title', 'Unknown')
+        real_title = c_title or 'Unknown'
         if c_user:
             link = f"https://t.me/{c_user}/{event.message.id}"
         else:
