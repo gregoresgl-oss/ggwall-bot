@@ -299,14 +299,14 @@ def pick_jitter_delay():
 
 async def smart_wait_and_check(chat_id, msg_id, target_delay, button_index):
     """
-    Περιμένει μέχρι target_delay ΑΛΛΑ ελέγχει τον counter κάθε ~1s.
+    Περιμένει μέχρι target_delay ΑΛΛΑ ελέγχει τον counter κάθε ~0.5s.
     Αν η πληρότητα φτάσει το capacity_threshold %, επιστρέφει νωρίτερα.
     Επιστρέφει: (πραγματικός_χρόνος_αναμονής, reason)
       reason: 'timer' (πέρασε ο χρόνος) | 'capacity' (danger zone) | 'error'
     """
     threshold = settings.get("capacity_threshold", 70)
     waited = 0.0
-    step = 1.0
+    step = 0.5    # check κάθε 0.5 δευτερόλεπτα (γρήγορη αντίδραση)
     while waited < target_delay:
         sleep_now = min(step, target_delay - waited)
         await asyncio.sleep(sleep_now)
@@ -315,13 +315,11 @@ async def smart_wait_and_check(chat_id, msg_id, target_delay, button_index):
         try:
             fresh = await user_client.get_messages(chat_id, ids=msg_id)
             if fresh and fresh.buttons:
-                # Βρες το ίδιο button (ίδιο index αν γίνεται)
                 cur = tot = None
                 flat = [b for row in fresh.buttons for b in row]
                 if 0 <= button_index < len(flat):
                     cur, tot = parse_counter(flat[button_index].text)
                 if cur is None:
-                    # fallback: ψάξε οποιοδήποτε button με counter
                     for b in flat:
                         cur, tot = parse_counter(b.text)
                         if cur is not None:
