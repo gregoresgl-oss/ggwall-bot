@@ -1336,13 +1336,17 @@ def build_summary(period="daily"):
         days = [target]
         title = "📊 **ΗΜΕΡΗΣΙΑ ΑΝΑΦΟΡΑ**"
     else:
-        # τελευταίες 7 μέρες
-        import datetime
-        today = datetime.date.today()
-        days = [(today - datetime.timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
+        # τελευταίες 7 μέρες — στα μεσάνυχτα ξεκίνα από χθες
+        import datetime as _dt2
+        now2 = _dt2.datetime.now()
+        if now2.hour == 0:
+            base = now2.date() - _dt2.timedelta(days=1)
+        else:
+            base = now2.date()
+        days = [(base - _dt2.timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
         title = "📈 **ΕΒΔΟΜΑΔΙΑΙΑ ΑΝΑΦΟΡΑ**"
-        d_from = (today - datetime.timedelta(days=6)).strftime("%d/%m")
-        d_to = today.strftime("%d/%m/%Y")
+        d_from = (base - _dt2.timedelta(days=6)).strftime("%d/%m")
+        d_to = base.strftime("%d/%m/%Y")
         date_label = f"{d_from} — {d_to}"
 
     # Άθροισμα
