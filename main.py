@@ -514,14 +514,16 @@ async def on_msg(event):
         if cached and (time.time() - cached["ts"]) < 3600:  # cache 1h
             c_user = cached["user"]
             c_title = cached["title"]
+            c_title_display = cached["display"]
         else:
             try:
                 chat = await event.get_chat()
             except Exception:
                 return
             c_user = (getattr(chat, 'username', '') or '').lower()
-            c_title = (getattr(chat, 'title', '') or '').lower()
-            _chat_cache[cid] = {"user": c_user, "title": c_title, "ts": time.time()}
+            c_title_display = getattr(chat, 'title', '') or ''
+            c_title = c_title_display.lower()
+            _chat_cache[cid] = {"user": c_user, "title": c_title, "display": c_title_display, "ts": time.time()}
 
         c_id = str(cid)
 
@@ -557,7 +559,7 @@ async def on_msg(event):
         if len(seen_messages) > 500:
             seen_messages.clear()
 
-        real_title = c_title or 'Unknown'
+        real_title = c_title_display or 'Unknown'
         if c_user:
             link = f"https://t.me/{c_user}/{event.message.id}"
         else:
@@ -1153,9 +1155,7 @@ async def on_cb(event):
                 "Web dashboard με charts, tokens,\n"
                 "τιμές σε €, και ρυθμίσεις.\n"
                 "Προστατεύεται με password.\n\n"
-
-                "━━━━━━━━━━━━━━━━━━━━\n"
-                "_🌐 GGWALL\u200b.NET_"
+                "🌐 GGWALL·NET"
             )
             await event.edit(help_text, buttons=[[Button.inline("← Πίσω", b"back")]])
 
@@ -1203,8 +1203,8 @@ async def on_text(event):
         elif st in ("SET_JMIN", "SET_JMAX"):
             try:
                 val = float(t.replace(",", ".").strip())
-                if val < 0 or val > 120:
-                    confirm_msg = "⚠️ Βάλε αριθμό 0-120"
+                if val < 0 or val > 600:
+                    confirm_msg = "⚠️ Βάλε αριθμό 0-600"
                 else:
                     key = "jitter_min" if st == "SET_JMIN" else "jitter_max"
                     settings[key] = val
@@ -1436,8 +1436,7 @@ def build_summary(period="daily"):
         lines.append(f"📉 Μ.Ο. ημέρας:  **{avg}** claims")
         lines.append("")
 
-    lines.append("━━━━━━━━━━━━━━━━━━━━")
-    lines.append("_🌐 GGWALL\u200b.NET_")
+    lines.append("🌐 GGWALL·NET")
 
     return "\n".join(lines)
 
