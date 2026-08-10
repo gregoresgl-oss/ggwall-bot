@@ -272,17 +272,34 @@ let PRICES = {}; // {ATOM: 5.23, OSMO: 0.45, ...} in EUR
 
 async function fetchPrices(symbols) {
   try {
+    // 1. CoinGecko (κύρια πηγή)
     const ids = symbols.map(s => CG_IDS[s.toUpperCase()]).filter(Boolean);
-    if (ids.length === 0) return;
-    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=eur`;
-    const r = await fetch(url);
-    if (!r.ok) return;
-    const data = await r.json();
-    // Reverse map: coingecko id → symbol
-    const rev = {};
-    for (const [sym, id] of Object.entries(CG_IDS)) rev[id] = sym;
-    for (const [id, prices] of Object.entries(data)) {
-      if (rev[id] && prices.eur) PRICES[rev[id]] = prices.eur;
+    if (ids.length > 0) {
+      const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=eur`;
+      const r = await fetch(url);
+      if (r.ok) {
+        const data = await r.json();
+        const rev = {};
+        for (const [sym, id] of Object.entries(CG_IDS)) rev[id] = sym;
+        for (const [id, prices] of Object.entries(data)) {
+          if (rev[id] && prices.eur) PRICES[rev[id]] = prices.eur;
+        }
+      }
+    }
+    // 2. Osmosis Imperator API (fallback για tokens που δεν βρέθηκαν)
+    const missing = symbols.filter(s => !PRICES[s.toUpperCase()]);
+    for (const sym of missing) {
+      try {
+        const r = await fetch(`https://api-osmosis.imperator.co/tokens/v2/${sym}`);
+        if (r.ok) {
+          const data = await r.json();
+          // API returns array: [{price: X, ...}]
+          if (Array.isArray(data) && data.length > 0 && data[0].price) {
+            // Price is in USD, convert to EUR (~0.92)
+            PRICES[sym.toUpperCase()] = data[0].price * 0.92;
+          }
+        }
+      } catch(e) {}
     }
   } catch(e) { console.log('Price fetch failed:', e); }
 }
