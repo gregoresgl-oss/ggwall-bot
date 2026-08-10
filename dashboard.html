@@ -305,34 +305,15 @@ async function fetchPrices(symbols) {
         }
       } catch(e) {}
     }
-    // 3. Osmosis SQS API — final fallback for Cosmos tokens
+    // 3. Numia (Osmosis) — fallback for Cosmos tokens not on CoinGecko
     const missing = symbols.filter(s => !PRICES[s.toUpperCase()]);
-    if (missing.length > 0) {
-      try {
-        // SQS tokens/prices endpoint
-        const denoms = missing.map(s => s.toUpperCase());
-        const r = await fetch(`https://sqs.osmosis.zone/tokens/prices?base=${denoms.join(',')}`);
-        if (r.ok) {
-          const data = await r.json();
-          for (const [denom, info] of Object.entries(data)) {
-            const sym = denom.toUpperCase();
-            if (info && typeof info === 'object') {
-              const price = info.price || info.Price || info.usd;
-              if (price) PRICES[sym] = price * 0.92; // USD → EUR
-            }
-          }
-        }
-      } catch(e) {}
-    }
-    // 4. Numia fallback
-    const still = symbols.filter(s => !PRICES[s.toUpperCase()]);
-    for (const sym of still) {
+    for (const sym of missing) {
       try {
         const r = await fetch(`https://public-osmosis-api.numia.xyz/tokens/v2/${sym}`);
         if (r.ok) {
           const data = await r.json();
           if (Array.isArray(data) && data[0]?.price) {
-            PRICES[sym.toUpperCase()] = data[0].price * 0.92;
+            PRICES[sym.toUpperCase()] = data[0].price * 0.92; // USD → EUR
           }
         }
       } catch(e) {}
