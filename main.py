@@ -1317,6 +1317,52 @@ async def a_purge_alerts(r):
         logger.error(f"Purge error: {e}")
         return web.json_response({"ok": False, "error": str(e)}, headers=cors())
 
+import aiohttp as _aiohttp
+
+CG_MAP = {
+    'ATOM':'cosmos','OSMO':'osmosis','NTRN':'neutron','STRD':'stride',
+    'TIA':'celestia','INJ':'injective-protocol','JUNO':'juno-network',
+    'AKT':'akash-network','SCRT':'secret','KUJI':'kujira','DYM':'dymension',
+    'SAGA':'saga-2','USDC':'usd-coin','NLS':'nolus','ETH':'ethereum',
+}
+
+async def a_prices(r):
+    if not check_key(r): return denied()
+    symbols = r.query.get('symbols', '').upper().split(',')
+    symbols = [s.strip() for s in symbols if s.strip()]
+    if not symbols:
+        return web.json_response({}, headers=cors())
+    prices = {}
+    try:
+        async with _aiohttp.ClientSession() as session:
+            # 1. CoinGecko
+            ids = [CG_MAP[s] for s in symbols if s in CG_MAP]
+            if ids:
+                try:
+                    async with session.get(f'https://api.coingecko.com/api/v3/simple/price?ids={",".join(ids)}&vs_currencies=eur', timeout=_aiohttp.ClientTimeout(total=5)) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            rev = {v: k for k, v in CG_MAP.items()}
+                            for cg_id, p in data.items():
+                                if rev.get(cg_id) and p.get('eur'):
+                                    prices[rev[cg_id]] = p['eur']
+                except Exception:
+                    pass
+            # 2. Numia (Osmosis) — for tokens not found on CoinGecko
+            missing = [s for s in symbols if s not in prices]
+            for sym in missing:
+                try:
+                    async with session.get(f'https://public-osmosis-api.numia.xyz/tokens/v2/{sym}', timeout=_aiohttp.ClientTimeout(total=5)) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            if isinstance(data, list) and data and data[0].get('price'):
+                                prices[sym] = round(data[0]['price'] * 0.92, 4)  # USD → EUR
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.error(f"Prices: {e}")
+    return web.json_response(prices, headers=cors())
+
 async def a_dashboard(r):
     if not check_key(r): return denied()
     try:
@@ -1475,6 +1521,7 @@ async def start_api():
     app.router.add_get('/api/stats', a_stats)
     app.router.add_get('/api/alerts', a_alerts)
     app.router.add_get('/api/alerts/purge', a_purge_alerts)
+    app.router.add_get('/api/prices', a_prices)
     runner = web.AppRunner(app); await runner.setup()
     await web.TCPSite(runner, '0.0.0.0', 8080).start()
     logger.info("🌐 API: 8080 · Dashboard: /")
