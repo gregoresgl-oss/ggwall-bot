@@ -224,7 +224,6 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
     </div>
     <div>
       <h3>Tokens earned</h3>
-      <div style="font-size:10px;color:var(--dimmer);margin-bottom:12px;">🎯 giveaway · 🎮 game · 🎁 tip · ✋ manual</div>
       <div id="token-list"></div>
     </div>
   </div>
@@ -274,7 +273,7 @@ let PRICES = {}; // {ATOM: 5.23, OSMO: 0.45, ...} in EUR
 
 async function fetchPrices(symbols) {
   try {
-    // 1. CoinGecko (κύρια πηγή)
+    // 1. CoinGecko — mapped tokens
     const ids = symbols.map(s => CG_IDS[s.toUpperCase()]).filter(Boolean);
     if (ids.length > 0) {
       const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=eur`;
@@ -288,16 +287,32 @@ async function fetchPrices(symbols) {
         }
       }
     }
-    // 2. Osmosis Imperator API (fallback για tokens που δεν βρέθηκαν)
+    // 2. CoinGecko search — unmapped tokens (auto-detect)
+    const unmapped = symbols.filter(s => !PRICES[s.toUpperCase()] && !CG_IDS[s.toUpperCase()]);
+    for (const sym of unmapped) {
+      try {
+        const r = await fetch(`https://api.coingecko.com/api/v3/search?query=${sym}`);
+        if (r.ok) {
+          const data = await r.json();
+          const coin = data.coins?.find(c => c.symbol?.toUpperCase() === sym.toUpperCase());
+          if (coin) {
+            const pr = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coin.id}&vs_currencies=eur`);
+            if (pr.ok) {
+              const pd = await pr.json();
+              if (pd[coin.id]?.eur) PRICES[sym.toUpperCase()] = pd[coin.id].eur;
+            }
+          }
+        }
+      } catch(e) {}
+    }
+    // 3. Osmosis Imperator API — final fallback
     const missing = symbols.filter(s => !PRICES[s.toUpperCase()]);
     for (const sym of missing) {
       try {
         const r = await fetch(`https://api-osmosis.imperator.co/tokens/v2/${sym}`);
         if (r.ok) {
           const data = await r.json();
-          // API returns array: [{price: X, ...}]
           if (Array.isArray(data) && data.length > 0 && data[0].price) {
-            // Price is in USD, convert to EUR (~0.92)
             PRICES[sym.toUpperCase()] = data[0].price * 0.92;
           }
         }
@@ -523,15 +538,11 @@ function render(s1,s2,set1,set2,a1,a2){
     const keys=Object.keys(all).sort((a,b)=>all[b]-all[a]);
     let portfolioTotal = 0;
     tokEl.innerHTML=keys.map(k=>{
-      const t=all[k];let p=[];
-      if(combConf[k])p.push(`🎯${fmt(combConf[k])}`);
-      if(combGame[k])p.push(`🎮${fmt(combGame[k])}`);
-      if(combTips[k])p.push(`🎁${fmt(combTips[k])}`);
-      if(MANUAL_TOKENS[k])p.push(`✋${fmt(MANUAL_TOKENS[k])}`);
+      const t=all[k];
       const eur=fmtEur(t,k);
       const price=PRICES[k.toUpperCase()];
       if(price&&t)portfolioTotal+=t*price;
-      return`<div class="tok"><div class="main"><span class="sym">${tokenIcon(k)} ${esc(k)}</span><span class="tot">${fmt(t)}</span></div><div class="bd">${p.join(' · ')}${eur?' · <span style="color:var(--amber)">'+eur+'</span>':''}</div></div>`;
+      return`<div class="tok"><div class="main"><span class="sym">${tokenIcon(k)} ${esc(k)}</span><span class="tot">${fmt(t)}</span></div>${eur?'<div class="bd" style="color:var(--amber)">'+eur+'</div>':''}</div>`;
     }).join('');
     // Portfolio total
     if(portfolioTotal > 0){
