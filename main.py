@@ -1359,11 +1359,6 @@ async def a_prices(r):
                                 prices[sym] = round(data[0]['price'] * 0.92, 4)  # USD → EUR
                 except Exception:
                     pass
-            # 3. Manual fallback for tokens with no API price
-            MANUAL_PRICES = {'ATOM1KLFG': 0.0005175 * 0.92}  # USD → EUR
-            for sym in symbols:
-                if sym not in prices and sym in MANUAL_PRICES:
-                    prices[sym] = round(MANUAL_PRICES[sym], 6)
     except Exception as e:
         logger.error(f"Prices: {e}")
     return web.json_response(prices, headers=cors())

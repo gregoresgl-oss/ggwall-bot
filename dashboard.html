@@ -190,6 +190,16 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
       <div id="cfg-wd-list" class="cfg-list"></div>
     </div>
     <div class="cfg-sect">
+      <div class="lbl">Manual token prices (€)</div>
+      <div class="cfg-help">Override prices for tokens without API data.</div>
+      <div class="row">
+        <input id="cfg-pr-sym" placeholder="ATOM1KLFG" style="flex:0 1 120px;text-transform:uppercase;" />
+        <input id="cfg-pr-val" placeholder="0.0005" style="flex:0 1 140px;" />
+        <button onclick="addManualPrice()">Set</button>
+      </div>
+      <div id="cfg-pr-list" class="cfg-list"></div>
+    </div>
+    <div class="cfg-sect">
       <div class="lbl">Delete alerts from channel</div>
       <div class="cfg-help">Permanently removes alerts and adjusts stats.</div>
       <div class="row">
@@ -238,6 +248,7 @@ let BOT1_NAME=localStorage.getItem('ggwall_bot1_name')||'GGWALL';
 let BOT2_NAME=localStorage.getItem('ggwall_bot2_name')||'GGWALL2';
 let MANUAL_TOKENS=JSON.parse(localStorage.getItem('ggwall_manual_tokens')||'{}');
 let MANUAL_WITHDRAWALS=JSON.parse(localStorage.getItem('ggwall_manual_withdrawals')||'{}');
+let MANUAL_PRICES=JSON.parse(localStorage.getItem('ggwall_manual_prices')||'{}');
 let ALL_CHANNELS=new Set();
 
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
@@ -284,6 +295,12 @@ async function fetchPrices(symbols) {
       }
     }
   } catch(e) { console.log('Price fetch failed:', e); }
+  // Manual prices — ΜΟΝΟ αν δεν βρέθηκε τιμή από API
+  for (const [sym, price] of Object.entries(MANUAL_PRICES)) {
+    if (!PRICES[sym] || PRICES[sym] <= 0) {
+      PRICES[sym] = price;
+    }
+  }
 }
 
 function fmtEur(amount, sym) {
@@ -533,7 +550,7 @@ function render(s1,s2,set1,set2,a1,a2){
 }
 
 // Config
-function showCfg(){document.getElementById('cfg-n1').value=BOT1_NAME;document.getElementById('cfg-n2').value=BOT2_NAME;document.getElementById('cfg-u2').value=REMOTE||'';document.getElementById('cfg-panel').style.display='block';document.getElementById('cfg-cancel').style.display=REMOTE?'inline-block':'none';renderManualTokens();renderManualWithdraws();renderPurgeDropdown();}
+function showCfg(){document.getElementById('cfg-n1').value=BOT1_NAME;document.getElementById('cfg-n2').value=BOT2_NAME;document.getElementById('cfg-u2').value=REMOTE||'';document.getElementById('cfg-panel').style.display='block';document.getElementById('cfg-cancel').style.display=REMOTE?'inline-block':'none';renderManualTokens();renderManualWithdraws();renderManualPrices();renderPurgeDropdown();}
 function hideCfg(){document.getElementById('cfg-panel').style.display='none';}
 function saveConfig(){
   BOT1_NAME=document.getElementById('cfg-n1').value.trim()||'GGWALL';
@@ -579,6 +596,23 @@ function addManualWithdraw(){
   sE.value='';aE.value='';renderManualWithdraws();load();
 }
 function removeManualWithdraw(sym){if(!confirm('Remove $'+sym+' withdraw?'))return;delete MANUAL_WITHDRAWALS[sym];localStorage.setItem('ggwall_manual_withdrawals',JSON.stringify(MANUAL_WITHDRAWALS));renderManualWithdraws();load();}
+function renderManualPrices(){
+  const el=document.getElementById('cfg-pr-list');const keys=Object.keys(MANUAL_PRICES).sort();
+  el.innerHTML=keys.length===0?'<div class="empty">none (uses API prices)</div>':keys.map(k=>
+    `<div class="item"><span>$${esc(k)}: €${MANUAL_PRICES[k]}</span><button class="rm" onclick="removeManualPrice('${esc(k)}')">×</button></div>`
+  ).join('');
+}
+function addManualPrice(){
+  const sE=document.getElementById('cfg-pr-sym'),vE=document.getElementById('cfg-pr-val');
+  const sym=sE.value.trim().toUpperCase().replace(/^\$/,'').replace(/[^A-Z0-9]/g,'');
+  const val=parseFloat(vE.value.trim().replace(',','.'));
+  if(!sym){alert('Invalid symbol');return;}
+  if(isNaN(val)||val<=0){alert('Invalid price');return;}
+  MANUAL_PRICES[sym]=val;
+  localStorage.setItem('ggwall_manual_prices',JSON.stringify(MANUAL_PRICES));
+  sE.value='';vE.value='';renderManualPrices();load();
+}
+function removeManualPrice(sym){if(!confirm('Remove $'+sym+' price?'))return;delete MANUAL_PRICES[sym];localStorage.setItem('ggwall_manual_prices',JSON.stringify(MANUAL_PRICES));renderManualPrices();load();}
 function renderPurgeDropdown(){
   const sel=document.getElementById('cfg-purge-ch');
   sel.innerHTML='<option value="">— select —</option>'+Array.from(ALL_CHANNELS).sort().map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
