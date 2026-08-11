@@ -333,6 +333,15 @@ async def smart_wait_and_check(chat_id, msg_id, target_delay, button_index):
     return round(waited, 2), "timer"
 
 # ============ COSMOBOT CONFIRMATION TRACKING ============
+# DEBUG: Log ALL private messages to see if cosmobot DMs arrive
+@user_client.on(events.NewMessage(incoming=True))
+async def _debug_dm(event):
+    if event.is_private:
+        sender = await event.get_sender()
+        uname = getattr(sender, 'username', '?') or '?'
+        text = (event.message.text or '')[:60]
+        logger.info(f"📬 DM from @{uname}: {text}")
+
 # Regex για parse του confirmed amount: "claimed a giveaway of 0.2 $ATOM"
 CONFIRM_AMOUNT_RE = re.compile(r'giveaway of\s+([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})', re.IGNORECASE)
 # Regex για requirements: "Required: 22,500 $ATOM"
@@ -358,9 +367,13 @@ async def on_cosmobot_dm(event):
         text = event.message.text or ""
         tl = text.lower()
 
+        # DEBUG: log κάθε μήνυμα που φτάνει
+        logger.info(f"📩 Cosmobot msg: {text[:80]}")
+
         # Dedup: μη μετρήσεις το ίδιο μήνυμα δύο φορές
         msg_id = f"cosmo_{event.message.id}"
         if msg_id in seen_messages:
+            logger.debug(f"📩 Cosmobot dedup skip: {msg_id}")
             return
         seen_messages.add(msg_id)
 
