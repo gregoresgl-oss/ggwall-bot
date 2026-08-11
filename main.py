@@ -370,12 +370,9 @@ async def on_cosmobot_dm(event):
         # DEBUG: log κάθε μήνυμα που φτάνει
         logger.info(f"📩 Cosmobot msg: {text[:80]}")
 
-        # Dedup: μη μετρήσεις το ίδιο μήνυμα δύο φορές
-        msg_id = f"cosmo_{event.message.id}"
-        if msg_id in seen_messages:
-            logger.debug(f"📩 Cosmobot dedup skip: {msg_id}")
+        # Skip "Working.." placeholder messages
+        if "working" in tl and "updated" in tl:
             return
-        seen_messages.add(msg_id)
 
         # ✅ ΕΠΙΤΥΧΙΑ
         if "successfully claimed" in tl:
