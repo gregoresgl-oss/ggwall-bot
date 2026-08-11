@@ -422,7 +422,7 @@ async def on_cosmobot_dm(event):
             logger.info(f"🎁 Tip: {amt} {sym}")
 
         # 💸 WITHDRAW: "Withdrew 16 $ATOM to cosmos13..."
-        elif "withdrew" in tl and "successful" in tl:
+        elif "withdrew" in tl:
             m = WITHDRAW_RE.search(text)
             amt, sym = None, None
             if m:
