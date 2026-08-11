@@ -348,6 +348,7 @@ TIP_RE = re.compile(r'sent you\s+([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})', re.
 WITHDRAW_RE = re.compile(r'Withdrew\s+([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})', re.IGNORECASE)
 
 @user_client.on(events.NewMessage(from_users='ibc_cosmobot'))
+@user_client.on(events.MessageEdited(from_users='ibc_cosmobot'))
 async def on_cosmobot_dm(event):
     """Ακούει τα confirmation DMs από το Cosmobot για πραγματικά αποτελέσματα."""
     global stats
@@ -356,6 +357,12 @@ async def on_cosmobot_dm(event):
             return
         text = event.message.text or ""
         tl = text.lower()
+
+        # Dedup: μη μετρήσεις το ίδιο μήνυμα δύο φορές
+        msg_id = f"cosmo_{event.message.id}"
+        if msg_id in seen_messages:
+            return
+        seen_messages.add(msg_id)
 
         # ✅ ΕΠΙΤΥΧΙΑ
         if "successfully claimed" in tl:
