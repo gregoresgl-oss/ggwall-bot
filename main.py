@@ -306,7 +306,7 @@ async def smart_wait_and_check(chat_id, msg_id, target_delay, button_index):
     """
     threshold = settings.get("capacity_threshold", 70)
     waited = 0.0
-    step = 0.5    # check κάθε 0.5 δευτερόλεπτα (γρήγορη αντίδραση)
+    step = 0.3    # check κάθε 0.3 δευτερόλεπτα
     while waited < target_delay:
         sleep_now = min(step, target_delay - waited)
         await asyncio.sleep(sleep_now)
@@ -630,7 +630,7 @@ async def on_msg(event):
 
                 if small_giveaway:
                     # Μικρό giveaway → πολύ σύντομο delay (0-2s)
-                    target = round(random.uniform(0, 2), 2)
+                    target = round(random.uniform(0, 1), 2)
                     logger.info(f"🏃 Small giveaway ({tot} spots)! Fast jitter {target}s")
                 else:
                     target = pick_jitter_delay()
@@ -655,7 +655,7 @@ async def on_msg(event):
                 try:
                     t1 = time.time()
                     try:
-                        await asyncio.wait_for(b.click(), timeout=2.0)
+                        await asyncio.wait_for(b.click(), timeout=1.5)
                     except asyncio.TimeoutError:
                         pass
                     el = round(time.time() - t1, 2)
