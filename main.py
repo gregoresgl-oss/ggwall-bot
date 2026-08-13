@@ -166,6 +166,21 @@ def bump_daily(kind, tok_sym=None, tok_amt=None):
 settings = load_settings()
 stats = load_stats()
 
+# One-time: inject historical NFTs if not already present
+_HISTORICAL_NFTS = [
+    {"name": "Reaper #5565 - rank 8569", "collection": "Underworld Necropolis", "date": "2026-08-12"},
+    {"name": "Bad snails #2662", "collection": "Bad snails", "date": "2026-08-12"},
+    {"name": "Hellbull #4334 - rank 703", "collection": "Underworld Genesis", "date": "2026-08-13"},
+    {"name": "Reaper #8466 - rank 9902", "collection": "Underworld Necropolis", "date": "2026-08-13"},
+]
+existing_names = {n["name"] for n in stats.get("nfts", [])}
+stats.setdefault("nfts", [])
+for nft in _HISTORICAL_NFTS:
+    if nft["name"] not in existing_names:
+        stats["nfts"].append(nft)
+if len(stats["nfts"]) > len(existing_names):
+    save_stats(stats)
+
 if settings.get("owner_id"):
     owner_id = settings["owner_id"]
     logger.info(f"Loaded owner: {owner_id}")
