@@ -82,6 +82,7 @@ DEFAULT_STATS = {
     "game_wins": 0,        # πόσα games κέρδισα
     "tips_received": 0,    # πόσα tips έλαβα
     "withdrawals": {},     # tokens που έκανα withdraw {"ATOM": 50.0}
+    "nfts": [],             # NFTs claimed
     "daily": {}  # {"2026-07-27": {"alerts": 5, "claims": 4, "tokens": {"ATOM": 1.2}}}
 }
 
@@ -376,24 +377,51 @@ async def on_cosmobot_dm(event):
 
         # ✅ ΕΠΙΤΥΧΙΑ
         if "successfully claimed" in tl:
+            # Check αν είναι NFT claim (δεν περιέχει "giveaway of X $TOKEN")
             m = CONFIRM_AMOUNT_RE.search(text)
-            amt, sym = None, None
             if m:
+                # TOKEN claim
+                amt, sym = None, None
                 try:
                     amt = float(m.group(1).replace(",", ""))
                     sym = m.group(2).upper()
                 except Exception:
                     pass
-            stats["real_claims"] = stats.get("real_claims", 0) + 1
-            if amt and sym:
-                stats.setdefault("confirmed_tokens", {})
-                stats["confirmed_tokens"][sym] = round(stats["confirmed_tokens"].get(sym, 0) + amt, 4)
-            bump_daily("confirmed")
-            save_stats(stats)
-            if amt and sym:
+                stats["real_claims"] = stats.get("real_claims", 0) + 1
+                if amt and sym:
+                    stats.setdefault("confirmed_tokens", {})
+                    stats["confirmed_tokens"][sym] = round(stats["confirmed_tokens"].get(sym, 0) + amt, 4)
+                bump_daily("confirmed")
+                save_stats(stats)
+                if amt and sym:
+                    await bot_client.send_message(owner_id,
+                        f"✅ **Επιβεβαιωμένο!**\n\nΠήρες **{amt:g} ${sym}** 🎉", link_preview=False)
+                logger.info(f"✅ Confirmed claim: {amt} {sym}")
+            else:
+                # NFT claim — "successfully claimed Reaper #5565 - rank 8569 from..."
+                nft_name = "Unknown NFT"
+                nft_collection = ""
+                try:
+                    # Parse NFT name: "claimed XXXXX from" or "claimed XXXXX in"
+                    import re as _re
+                    nft_m = _re.search(r'claimed\s+(.+?)(?:\s+from\s+(.+?)(?:\s+by\s+|\s+in\s+)|(?:\s+in\s+))', text, _re.IGNORECASE)
+                    if nft_m:
+                        nft_name = nft_m.group(1).strip()[:60]
+                        nft_collection = (nft_m.group(2) or "").strip()[:60]
+                except Exception:
+                    pass
+                stats["real_claims"] = stats.get("real_claims", 0) + 1
+                stats.setdefault("nfts", [])
+                stats["nfts"].append({
+                    "name": nft_name,
+                    "collection": nft_collection,
+                    "date": time.strftime("%Y-%m-%d")
+                })
+                bump_daily("confirmed")
+                save_stats(stats)
                 await bot_client.send_message(owner_id,
-                    f"✅ **Επιβεβαιωμένο!**\n\nΠήρες **{amt:g} ${sym}** 🎉", link_preview=False)
-            logger.info(f"✅ Confirmed claim: {amt} {sym}")
+                    f"🖼️ **NFT Claimed!**\n\n**{nft_name}**\n{nft_collection}\n🎉", link_preview=False)
+                logger.info(f"🖼️ NFT claimed: {nft_name}")
 
         # 🎮 MINIGAME reward: "You placed 2nd... won 0.28 $ATOM"
         elif "won" in tl and ("placed" in tl or "packet" in tl or "ibc-0" in tl):
@@ -971,6 +999,13 @@ async def on_cb(event):
                 sorted_w = sorted(wtoks.items(), key=lambda x: -x[1])
                 token_sections += "\n\n💸 **Withdrawals:**\n" + "\n".join(
                     f"  • {v:g} ${k}" for k, v in sorted_w[:6]
+                )
+
+            # NFTs
+            nfts = stats.get("nfts", [])
+            if nfts:
+                token_sections += f"\n\n🖼️ **NFTs** ({len(nfts)}):\n" + "\n".join(
+                    f"  • {n['name']}" for n in nfts[-6:]
                 )
 
             if not token_sections and not has_confirmed:

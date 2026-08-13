@@ -491,6 +491,15 @@ function render(s1,s2,set1,set2,a1,a2){
     </div>`;
   }).join('');
 
+  // NFTs section (combined from both bots)
+  const allNfts = [...(s1?.nfts||[]), ...(s2?.nfts||[])];
+  if (allNfts.length > 0) {
+    const nftHtml = allNfts.slice(-8).map(n =>
+      `<div class="r"><span class="k">🖼️ ${esc(n.name||'NFT')}</span><span class="v" style="color:var(--dim);font-size:11px">${esc(n.date||'')}</span></div>`
+    ).join('');
+    grid.innerHTML += `<div class="bot" style="grid-column:1/-1"><div class="top"><span class="nm">🖼️ NFTs Collected</span><span class="badge on">${allNfts.length}</span></div>${nftHtml}</div>`;
+  }
+
   // Chart — daily claims bar chart (last 14 days)
   renderChart(s1, s2);
 
