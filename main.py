@@ -1450,7 +1450,8 @@ def build_summary(period="daily"):
         if not rec:
             continue
         a = rec.get("alerts", 0)
-        c = rec.get("claims", 0)
+        # Χρησιμοποίησε confirmed αν υπάρχουν, αλλιώς claims (fallback)
+        c = rec.get("confirmed", 0) if rec.get("confirmed", 0) > 0 else rec.get("claims", 0)
         if c > 0 or a > 0:
             active_days += 1
         total_alerts += a
