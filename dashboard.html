@@ -200,6 +200,16 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
       <div id="cfg-pr-list" class="cfg-list"></div>
     </div>
     <div class="cfg-sect">
+      <div class="lbl">Manual NFTs</div>
+      <div class="cfg-help">Historical NFTs not tracked by the bot.</div>
+      <div class="row">
+        <input id="cfg-nft-name" placeholder="Reaper #5565" style="flex:1;" />
+        <input id="cfg-nft-col" placeholder="Collection" style="flex:0 1 160px;" />
+        <button onclick="addManualNft()">Add</button>
+      </div>
+      <div id="cfg-nft-list" class="cfg-list"></div>
+    </div>
+    <div class="cfg-sect">
       <div class="lbl">Delete alerts from channel</div>
       <div class="cfg-help">Permanently removes alerts and adjusts stats.</div>
       <div class="row">
@@ -249,6 +259,7 @@ let BOT2_NAME=localStorage.getItem('ggwall_bot2_name')||'GGWALL2';
 let MANUAL_TOKENS=JSON.parse(localStorage.getItem('ggwall_manual_tokens')||'{}');
 let MANUAL_WITHDRAWALS=JSON.parse(localStorage.getItem('ggwall_manual_withdrawals')||'{}');
 let MANUAL_PRICES=JSON.parse(localStorage.getItem('ggwall_manual_prices')||'{}');
+let MANUAL_NFTS=JSON.parse(localStorage.getItem('ggwall_manual_nfts')||'[]');
 let ALL_CHANNELS=new Set();
 
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
@@ -491,11 +502,11 @@ function render(s1,s2,set1,set2,a1,a2){
     </div>`;
   }).join('');
 
-  // NFTs section (combined from both bots)
-  const allNfts = [...(s1?.nfts||[]), ...(s2?.nfts||[])];
+  // NFTs section (bot tracked + manual)
+  const allNfts = [...(s1?.nfts||[]), ...(s2?.nfts||[]), ...MANUAL_NFTS];
   if (allNfts.length > 0) {
     const nftHtml = allNfts.slice(-8).map(n =>
-      `<div class="r"><span class="k">🖼️ ${esc(n.name||'NFT')}</span><span class="v" style="color:var(--dim);font-size:11px">${esc(n.date||'')}</span></div>`
+      `<div class="r"><span class="k">🖼️ ${esc(n.name||'NFT')}${n.collection?' <span style="color:var(--dimmer)">· '+esc(n.collection)+'</span>':''}</span><span class="v" style="color:var(--dim);font-size:11px">${esc(n.date||'')}</span></div>`
     ).join('');
     grid.innerHTML += `<div class="bot" style="grid-column:1/-1"><div class="top"><span class="nm">🖼️ NFTs Collected</span><span class="badge on">${allNfts.length}</span></div>${nftHtml}</div>`;
   }
@@ -559,7 +570,7 @@ function render(s1,s2,set1,set2,a1,a2){
 }
 
 // Config
-function showCfg(){document.getElementById('cfg-n1').value=BOT1_NAME;document.getElementById('cfg-n2').value=BOT2_NAME;document.getElementById('cfg-u2').value=REMOTE||'';document.getElementById('cfg-panel').style.display='block';document.getElementById('cfg-cancel').style.display=REMOTE?'inline-block':'none';renderManualTokens();renderManualWithdraws();renderManualPrices();renderPurgeDropdown();}
+function showCfg(){document.getElementById('cfg-n1').value=BOT1_NAME;document.getElementById('cfg-n2').value=BOT2_NAME;document.getElementById('cfg-u2').value=REMOTE||'';document.getElementById('cfg-panel').style.display='block';document.getElementById('cfg-cancel').style.display=REMOTE?'inline-block':'none';renderManualTokens();renderManualWithdraws();renderManualPrices();renderManualNfts();renderPurgeDropdown();}
 function hideCfg(){document.getElementById('cfg-panel').style.display='none';}
 function saveConfig(){
   BOT1_NAME=document.getElementById('cfg-n1').value.trim()||'GGWALL';
@@ -622,6 +633,21 @@ function addManualPrice(){
   sE.value='';vE.value='';renderManualPrices();load();
 }
 function removeManualPrice(sym){if(!confirm('Remove $'+sym+' price?'))return;delete MANUAL_PRICES[sym];localStorage.setItem('ggwall_manual_prices',JSON.stringify(MANUAL_PRICES));renderManualPrices();load();}
+function renderManualNfts(){
+  const el=document.getElementById('cfg-nft-list');
+  el.innerHTML=MANUAL_NFTS.length===0?'<div class="empty">none</div>':MANUAL_NFTS.map((n,i)=>
+    `<div class="item"><span>🖼️ ${esc(n.name)}${n.collection?' · '+esc(n.collection):''}</span><button class="rm" onclick="removeManualNft(${i})">×</button></div>`
+  ).join('');
+}
+function addManualNft(){
+  const nEl=document.getElementById('cfg-nft-name'),cEl=document.getElementById('cfg-nft-col');
+  const name=nEl.value.trim(),col=cEl.value.trim();
+  if(!name){alert('Enter NFT name');return;}
+  MANUAL_NFTS.push({name:name,collection:col||'',date:new Date().toISOString().slice(0,10)});
+  localStorage.setItem('ggwall_manual_nfts',JSON.stringify(MANUAL_NFTS));
+  nEl.value='';cEl.value='';renderManualNfts();load();
+}
+function removeManualNft(i){if(!confirm('Remove NFT?'))return;MANUAL_NFTS.splice(i,1);localStorage.setItem('ggwall_manual_nfts',JSON.stringify(MANUAL_NFTS));renderManualNfts();load();}
 function renderPurgeDropdown(){
   const sel=document.getElementById('cfg-purge-ch');
   sel.innerHTML='<option value="">— select —</option>'+Array.from(ALL_CHANNELS).sort().map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
