@@ -166,6 +166,13 @@ def bump_daily(kind, tok_sym=None, tok_amt=None):
 settings = load_settings()
 stats = load_stats()
 
+# One-time cleanup: remove previously injected historical NFTs
+_cleanup_names = {"Reaper #5565 - rank 8569", "Bad snails #2662", "Hellbull #4334 - rank 703", "Reaper #8466 - rank 9902"}
+if stats.get("nfts") and any(n.get("name") in _cleanup_names for n in stats["nfts"]):
+    stats["nfts"] = [n for n in stats["nfts"] if n.get("name") not in _cleanup_names]
+    save_stats(stats)
+    logger.info(f"🧹 Cleaned up {len(_cleanup_names)} historical NFTs from stats")
+
 if settings.get("owner_id"):
     owner_id = settings["owner_id"]
     logger.info(f"Loaded owner: {owner_id}")
@@ -645,21 +652,21 @@ async def on_msg(event):
             wait_reason = "instant"
             waited_time = 0.0
             if settings.get("smart_delay", True):
-                # Check αν είναι μικρό giveaway (≤5 άτομα) → γρήγορο click
+                # Check αν είναι μικρό giveaway (≤10 άτομα) → instant click
                 small_giveaway = False
                 try:
                     for b in found_btn:
                         cur, tot = parse_counter(b.text)
-                        if tot is not None and tot <= 5:
+                        if tot is not None and tot <= 10:
                             small_giveaway = True
                             break
                 except Exception:
                     pass
 
                 if small_giveaway:
-                    # Μικρό giveaway → πολύ σύντομο delay (0-2s)
-                    target = round(random.uniform(0, 1), 2)
-                    logger.info(f"🏃 Small giveaway ({tot} spots)! Fast jitter {target}s")
+                    # Μικρό giveaway → ΑΜΕΣΩΣ
+                    target = 0
+                    logger.info(f"🏃 Small giveaway ({tot} spots)! Instant click!")
                 else:
                     target = pick_jitter_delay()
 
@@ -682,10 +689,15 @@ async def on_msg(event):
             for b in found_btn:
                 try:
                     t1 = time.time()
-                    try:
-                        await asyncio.wait_for(b.click(), timeout=1.5)
-                    except asyncio.TimeoutError:
-                        pass
+                    # Retry logic: μικρά giveaways κάνουν 2 attempts
+                    max_attempts = 2 if small_giveaway else 1
+                    for attempt in range(max_attempts):
+                        try:
+                            await asyncio.wait_for(b.click(), timeout=1.5)
+                        except asyncio.TimeoutError:
+                            pass
+                        if attempt < max_attempts - 1:
+                            await asyncio.sleep(0.3)  # μικρή παύση πριν retry
                     el = round(time.time() - t1, 2)
                     ctime = f"{el}s"
                     clicked = True
@@ -793,8 +805,8 @@ def build_submenu(kind):
             f"🎲 **Jitter range:**  `{jmin:g}s – {jmax:g}s`\n"
             f"⚡ **Safety check:**  αν γεμίσει **{cap}%**,\n"
             "     πατάει ΑΜΕΣΩΣ (να μη χάσει)\n\n"
-            "🏃 **Μικρά giveaways (≤5 θέσεις):**\n"
-            "     Αυτόματα jitter `0–2s`\n"
+            "🏃 **Μικρά giveaways (≤10 θέσεις):**\n"
+            "     Αυτόματα instant click\n"
             "     (γεμίζουν γρήγορα, δεν περιμένει)\n\n"
             "_Πάτησε για αλλαγή:_"
         )
@@ -1177,8 +1189,8 @@ async def on_cb(event):
                 "• Min/Max delay σε δευτερόλεπτα\n"
                 "• Safety %: αν γεμίσει τόσο,\n"
                 "  πατάει αμέσως (να μη χάσει)\n"
-                "• 🏃 Μικρά giveaways (≤5 θέσεις):\n"
-                "  αυτόματα jitter 0–2s, δεν περιμένει\n\n"
+                "• 🏃 Μικρά giveaways (≤10 θέσεις):\n"
+                "  αυτόματα instant click, δεν περιμένει\n\n"
 
                 "**🕐 Sleep Hours**\n"
                 "Ρυθμίσεις ωρών ύπνου.\n"
