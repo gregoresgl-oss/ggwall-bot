@@ -341,15 +341,6 @@ async def smart_wait_and_check(chat_id, msg_id, target_delay, button_index):
     return round(waited, 2), "timer"
 
 # ============ COSMOBOT CONFIRMATION TRACKING ============
-# DEBUG: Log ALL private messages to see if cosmobot DMs arrive
-@user_client.on(events.NewMessage(incoming=True))
-async def _debug_dm(event):
-    if event.is_private:
-        sender = await event.get_sender()
-        uname = getattr(sender, 'username', '?') or '?'
-        text = (event.message.text or '')[:60]
-        logger.info(f"📬 DM from @{uname}: {text}")
-
 # Regex για parse του confirmed amount: "claimed a giveaway of 0.2 $ATOM"
 CONFIRM_AMOUNT_RE = re.compile(r'giveaway of\s+([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})', re.IGNORECASE)
 # Regex για requirements: "Required: 22,500 $ATOM"
@@ -374,9 +365,6 @@ async def on_cosmobot_dm(event):
             return
         text = event.message.text or ""
         tl = text.lower()
-
-        # DEBUG: log κάθε μήνυμα που φτάνει
-        logger.info(f"📩 Cosmobot msg: {text[:80]}")
 
         # Skip "Working.." placeholder messages
         if "working" in tl and "updated" in tl:
@@ -455,23 +443,48 @@ async def on_cosmobot_dm(event):
 
         # 🎁 TIP received: "Shalaxi just sent you 0.5 $ATOM"
         elif "sent you" in tl:
-            m = TIP_RE.search(text)
-            amt, sym = None, None
-            if m:
+            # Check αν είναι NFT tip: "sent you NFT #104 from Cosmos Guardians"
+            if "sent you nft" in tl:
+                nft_name = "Unknown NFT"
+                nft_collection = ""
                 try:
-                    amt = float(m.group(1).replace(",", ""))
-                    sym = m.group(2).upper()
+                    import re as _re2
+                    nft_tip_m = _re2.search(r'sent you NFT\s+(.+?)\s+from\s+(.+?)(?:\s*!|\s*$)', text, _re2.IGNORECASE | _re2.DOTALL)
+                    if nft_tip_m:
+                        nft_name = nft_tip_m.group(1).strip()[:60]
+                        nft_collection = nft_tip_m.group(2).strip()[:60]
                 except Exception:
                     pass
-            stats["tips_received"] = stats.get("tips_received", 0) + 1
-            if amt and sym:
-                stats.setdefault("tip_tokens", {})
-                stats["tip_tokens"][sym] = round(stats["tip_tokens"].get(sym, 0) + amt, 4)
-            save_stats(stats)
-            if amt and sym:
+                stats.setdefault("nfts", [])
+                stats["nfts"].append({
+                    "name": nft_name,
+                    "collection": nft_collection,
+                    "date": time.strftime("%Y-%m-%d"),
+                    "source": "tip"
+                })
+                save_stats(stats)
                 await bot_client.send_message(owner_id,
-                    f"🎁 **Tip!**\n\nΚάποιος σου έστειλε **{amt:g} ${sym}** 💝", link_preview=False)
-            logger.info(f"🎁 Tip: {amt} {sym}")
+                    f"🖼️ **NFT Tip!**\n\n**{nft_name}**\n{nft_collection}\n💝", link_preview=False)
+                logger.info(f"🖼️ NFT tip: {nft_name}")
+            else:
+                # Token tip: "sent you 0.5 $ATOM"
+                m = TIP_RE.search(text)
+                amt, sym = None, None
+                if m:
+                    try:
+                        amt = float(m.group(1).replace(",", ""))
+                        sym = m.group(2).upper()
+                    except Exception:
+                        pass
+                stats["tips_received"] = stats.get("tips_received", 0) + 1
+                if amt and sym:
+                    stats.setdefault("tip_tokens", {})
+                    stats["tip_tokens"][sym] = round(stats["tip_tokens"].get(sym, 0) + amt, 4)
+                save_stats(stats)
+                if amt and sym:
+                    await bot_client.send_message(owner_id,
+                        f"🎁 **Tip!**\n\nΚάποιος σου έστειλε **{amt:g} ${sym}** 💝", link_preview=False)
+                logger.info(f"🎁 Tip: {amt} {sym}")
 
         # 💸 WITHDRAW: "Withdrew 16 $ATOM to cosmos13..."
         elif "withdrew" in tl:
