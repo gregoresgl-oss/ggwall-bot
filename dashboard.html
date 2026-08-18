@@ -210,16 +210,6 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
       <div id="cfg-nft-list" class="cfg-list"></div>
     </div>
     <div class="cfg-sect">
-      <div class="lbl">Stargaze collections (floor price tracking)</div>
-      <div class="cfg-help">Add SG721 collection addresses (cosmos1 or stars1). Find them on cosmos.zone.</div>
-      <div class="row">
-        <input id="cfg-sg-name" placeholder="Underworld Halloween" style="flex:1;" />
-        <input id="cfg-sg-addr" placeholder="cosmos1gk87qw..." style="flex:1;" />
-        <button onclick="addStargazeCollection()">Add</button>
-      </div>
-      <div id="cfg-sg-list" class="cfg-list"></div>
-    </div>
-    <div class="cfg-sect">
       <div class="lbl">Delete alerts from channel</div>
       <div class="cfg-help">Permanently removes alerts and adjusts stats.</div>
       <div class="row">
@@ -258,13 +248,6 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
     </div>
   </div>
 
-  <div class="chart-card" id="stargaze-section" style="display:none;">
-    <div class="chart-hdr">
-      <h3>🌟 Stargaze collections</h3>
-    </div>
-    <div id="stargaze-list"></div>
-  </div>
-
   <div class="foot"><span id="last-upd">—</span> · <a id="refresh-btn">refresh</a></div>
 </div>
 
@@ -277,7 +260,6 @@ let MANUAL_TOKENS=JSON.parse(localStorage.getItem('ggwall_manual_tokens')||'{}')
 let MANUAL_WITHDRAWALS=JSON.parse(localStorage.getItem('ggwall_manual_withdrawals')||'{}');
 let MANUAL_PRICES=JSON.parse(localStorage.getItem('ggwall_manual_prices')||'{}');
 let MANUAL_NFTS=JSON.parse(localStorage.getItem('ggwall_manual_nfts')||'[]');
-let STARGAZE_COLLECTIONS=JSON.parse(localStorage.getItem('ggwall_stargaze_collections')||'[]');
 let ALL_CHANNELS=new Set();
 
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
@@ -447,9 +429,6 @@ async function load(){
     ...Object.keys(MANUAL_TOKENS),
   ]);
   fetchPrices(Array.from(allSymbols)).then(() => render(s1,s2,set1,set2,a1,a2));
-  
-  // Fetch Stargaze floor prices (non-blocking)
-  fetchStargazeFloors();
 }
 
 function render(s1,s2,set1,set2,a1,a2){
@@ -591,7 +570,7 @@ function render(s1,s2,set1,set2,a1,a2){
 }
 
 // Config
-function showCfg(){document.getElementById('cfg-n1').value=BOT1_NAME;document.getElementById('cfg-n2').value=BOT2_NAME;document.getElementById('cfg-u2').value=REMOTE||'';document.getElementById('cfg-panel').style.display='block';document.getElementById('cfg-cancel').style.display=REMOTE?'inline-block':'none';renderManualTokens();renderManualWithdraws();renderManualPrices();renderManualNfts();renderStargazeCollections();renderPurgeDropdown();}
+function showCfg(){document.getElementById('cfg-n1').value=BOT1_NAME;document.getElementById('cfg-n2').value=BOT2_NAME;document.getElementById('cfg-u2').value=REMOTE||'';document.getElementById('cfg-panel').style.display='block';document.getElementById('cfg-cancel').style.display=REMOTE?'inline-block':'none';renderManualTokens();renderManualWithdraws();renderManualPrices();renderManualNfts();renderPurgeDropdown();}
 function hideCfg(){document.getElementById('cfg-panel').style.display='none';}
 function saveConfig(){
   BOT1_NAME=document.getElementById('cfg-n1').value.trim()||'GGWALL';
@@ -669,42 +648,6 @@ function addManualNft(){
   nEl.value='';cEl.value='';renderManualNfts();load();
 }
 function removeManualNft(i){if(!confirm('Remove NFT?'))return;MANUAL_NFTS.splice(i,1);localStorage.setItem('ggwall_manual_nfts',JSON.stringify(MANUAL_NFTS));renderManualNfts();load();}
-function renderStargazeCollections(){
-  const el=document.getElementById('cfg-sg-list');
-  el.innerHTML=STARGAZE_COLLECTIONS.length===0?'<div class="empty">none</div>':STARGAZE_COLLECTIONS.map((c,i)=>
-    `<div class="item"><span>🌟 ${esc(c.name)}<br/><code style="font-size:10px;color:var(--dim)">${esc(c.address)}</code></span><button class="rm" onclick="removeStargazeCollection(${i})">×</button></div>`
-  ).join('');
-}
-function addStargazeCollection(){
-  const nEl=document.getElementById('cfg-sg-name'),aEl=document.getElementById('cfg-sg-addr');
-  const name=nEl.value.trim(),addr=aEl.value.trim();
-  if(!name||!addr){alert('Enter name and address');return;}
-  if(!(addr.startsWith('cosmos1')||addr.startsWith('stars1'))){alert('Address must start with cosmos1 or stars1');return;}
-  STARGAZE_COLLECTIONS.push({name:name,address:addr});
-  localStorage.setItem('ggwall_stargaze_collections',JSON.stringify(STARGAZE_COLLECTIONS));
-  nEl.value='';aEl.value='';renderStargazeCollections();load();
-}
-function removeStargazeCollection(i){if(!confirm('Remove collection?'))return;STARGAZE_COLLECTIONS.splice(i,1);localStorage.setItem('ggwall_stargaze_collections',JSON.stringify(STARGAZE_COLLECTIONS));renderStargazeCollections();load();}
-async function fetchStargazeFloors(){
-  if(STARGAZE_COLLECTIONS.length===0){document.getElementById('stargaze-section').style.display='none';return;}
-  document.getElementById('stargaze-section').style.display='block';
-  const el=document.getElementById('stargaze-list');
-  el.innerHTML='<div style="font-size:12px;color:var(--dim);">Fetching floor prices...</div>';
-  const results=[];
-  for(const col of STARGAZE_COLLECTIONS){
-    try{
-      const kp=typeof API_KEY!=='undefined'&&API_KEY?'&key='+API_KEY:'';
-      const url=`${LOCAL}/api/stargaze-floor/${encodeURIComponent(col.address)}${kp}`;
-      const r=await fetch(url);
-      if(r.ok){const d=await r.json();results.push({...col,floor:d.floor_price});}
-      else results.push({...col,error:`API error ${r.status}`});
-    }catch(e){results.push({...col,error:e.message});}
-  }
-  el.innerHTML=results.map(r=>
-    r.error?`<div style="padding:8px 0;border-bottom:1px solid var(--border);"><span style="color:var(--red)">❌ ${esc(r.name)}</span><br/><span style="font-size:11px;color:var(--dimmer)">${esc(r.error)}</span></div>`:
-    `<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;"><span>🌟 <strong>${esc(r.name)}</strong></span><span style="font-size:16px;font-weight:700;color:var(--amber)">${fmt(r.floor)} ATOM</span></div>`
-  ).join('')||'<div class="empty">No floor prices available</div>';
-}
 function renderPurgeDropdown(){
   const sel=document.getElementById('cfg-purge-ch');
   sel.innerHTML='<option value="">— select —</option>'+Array.from(ALL_CHANNELS).sort().map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
