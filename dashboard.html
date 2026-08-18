@@ -211,10 +211,10 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
     </div>
     <div class="cfg-sect">
       <div class="lbl">Stargaze collections (floor price tracking)</div>
-      <div class="cfg-help">Add SG721 addresses to track floor prices. Format: stars1...</div>
+      <div class="cfg-help">Add SG721 collection addresses (cosmos1 or stars1). Find them on cosmos.zone.</div>
       <div class="row">
-        <input id="cfg-sg-name" placeholder="Underworld Necropolis" style="flex:1;" />
-        <input id="cfg-sg-addr" placeholder="stars1gfzln..." style="flex:1;" />
+        <input id="cfg-sg-name" placeholder="Underworld Halloween" style="flex:1;" />
+        <input id="cfg-sg-addr" placeholder="cosmos1gk87qw..." style="flex:1;" />
         <button onclick="addStargazeCollection()">Add</button>
       </div>
       <div id="cfg-sg-list" class="cfg-list"></div>
@@ -678,8 +678,8 @@ function renderStargazeCollections(){
 function addStargazeCollection(){
   const nEl=document.getElementById('cfg-sg-name'),aEl=document.getElementById('cfg-sg-addr');
   const name=nEl.value.trim(),addr=aEl.value.trim();
-  if(!name||!addr){alert('Enter name and SG721 address');return;}
-  if(!addr.startsWith('stars1')){alert('Address must start with stars1');return;}
+  if(!name||!addr){alert('Enter name and address');return;}
+  if(!(addr.startsWith('cosmos1')||addr.startsWith('stars1'))){alert('Address must start with cosmos1 or stars1');return;}
   STARGAZE_COLLECTIONS.push({name:name,address:addr});
   localStorage.setItem('ggwall_stargaze_collections',JSON.stringify(STARGAZE_COLLECTIONS));
   nEl.value='';aEl.value='';renderStargazeCollections();load();

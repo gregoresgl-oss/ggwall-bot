@@ -1441,32 +1441,52 @@ async def a_prices(r):
     return web.json_response(prices, headers=cors())
 
 async def a_stargaze_floor(r):
-    """Fetch floor price from Stargaze Constellations API for a given SG721 collection."""
+    """Fetch floor price from Stargaze GraphQL API for SG721 collection (cosmos1 or stars1 address)."""
     if not check_key(r): return denied()
-    sg721_addr = r.match_info.get('sg721', '').strip()
-    if not sg721_addr.startswith('stars1'):
-        return web.json_response({"error": "Invalid SG721 address"}, status=400, headers=cors())
+    addr = r.match_info.get('sg721', '').strip()
+    if not (addr.startswith('cosmos1') or addr.startswith('stars1')):
+        return web.json_response({"error": "Invalid address (cosmos1 or stars1 required)"}, status=400, headers=cors())
     
     try:
         import aiohttp as _aiohttp
+        query = """
+        query GetCollection($collectionAddr: String!) {
+          collection(collectionAddr: $collectionAddr) {
+            address
+            name
+            floorPrice {
+              amount
+              denom
+            }
+          }
+        }
+        """
         async with _aiohttp.ClientSession() as session:
-            url = f'https://constellations-api.mainnet.stargaze-apis.com/collections/{sg721_addr}'
-            async with session.get(url, timeout=_aiohttp.ClientTimeout(total=5)) as resp:
+            async with session.post(
+                'https://graphql.mainnet.stargaze-apis.com/graphql',
+                json={"query": query, "variables": {"collectionAddr": addr}},
+                timeout=_aiohttp.ClientTimeout(total=5)
+            ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    # Extract floor_price & name if available
-                    floor = data.get('floor_price')
-                    name = data.get('name', '')
-                    if floor:
-                        return web.json_response({
-                            "sg721": sg721_addr,
-                            "name": name,
-                            "floor_price": floor,
-                            "denom": "atom"  # Stargaze typically uses ATOM
-                        }, headers=cors())
-                    return web.json_response({"error": "No floor price found"}, status=404, headers=cors())
+                    if data.get('data') and data['data'].get('collection'):
+                        col = data['data']['collection']
+                        floor_info = col.get('floorPrice', {})
+                        floor = floor_info.get('amount')
+                        denom = floor_info.get('denom', 'atom')
+                        if floor:
+                            return web.json_response({
+                                "address": addr,
+                                "name": col.get('name', ''),
+                                "floor_price": float(floor),
+                                "denom": denom
+                            }, headers=cors())
+                        return web.json_response({"error": "No floor price data"}, status=404, headers=cors())
+                    if data.get('errors'):
+                        return web.json_response({"error": data['errors'][0].get('message', 'GraphQL error')}, status=400, headers=cors())
+                    return web.json_response({"error": "Invalid API response"}, status=502, headers=cors())
                 else:
-                    return web.json_response({"error": f"API returned {resp.status}"}, status=503, headers=cors())
+                    return web.json_response({"error": f"API {resp.status}"}, status=503, headers=cors())
     except Exception as e:
         logger.error(f"Stargaze floor: {e}")
         return web.json_response({"error": str(e)}, status=500, headers=cors())
