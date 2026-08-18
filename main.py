@@ -62,6 +62,7 @@ DEFAULT_SETTINGS = {
     "jitter_min": 8.0,         # ελάχιστο random delay πριν το claim
     "jitter_max": 15.0,        # μέγιστο random delay
     "capacity_threshold": 70,  # % πληρότητας → πάτα ΤΩΡΑ (ασφάλεια)
+    "small_giveaway_instant": True,  # instant click για ≤10 spots
     "sleep_enabled": False,    # ώρες ύπνου on/off
     "sleep_start": 3,          # ώρα έναρξης ύπνου (0-23)
     "sleep_end": 7             # ώρα λήξης ύπνου (0-23)
@@ -676,8 +677,8 @@ async def on_msg(event):
                 except Exception:
                     pass
 
-                if small_giveaway:
-                    # Μικρό giveaway → ΑΜΕΣΩΣ
+                if small_giveaway and settings.get("small_giveaway_instant", True):
+                    # Μικρό giveaway → ΑΜΕΣΩΣ (αν το setting είναι enabled)
                     target = 0
                     logger.info(f"🏃 Small giveaway ({tot} spots)! Instant click!")
                 else:
