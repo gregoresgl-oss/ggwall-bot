@@ -1440,6 +1440,37 @@ async def a_prices(r):
         logger.error(f"Prices: {e}")
     return web.json_response(prices, headers=cors())
 
+async def a_stargaze_floor(r):
+    """Fetch floor price from Stargaze Constellations API for a given SG721 collection."""
+    if not check_key(r): return denied()
+    sg721_addr = r.match_info.get('sg721', '').strip()
+    if not sg721_addr.startswith('stars1'):
+        return web.json_response({"error": "Invalid SG721 address"}, status=400, headers=cors())
+    
+    try:
+        import aiohttp as _aiohttp
+        async with _aiohttp.ClientSession() as session:
+            url = f'https://constellations-api.mainnet.stargaze-apis.com/collections/{sg721_addr}'
+            async with session.get(url, timeout=_aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    # Extract floor_price & name if available
+                    floor = data.get('floor_price')
+                    name = data.get('name', '')
+                    if floor:
+                        return web.json_response({
+                            "sg721": sg721_addr,
+                            "name": name,
+                            "floor_price": floor,
+                            "denom": "atom"  # Stargaze typically uses ATOM
+                        }, headers=cors())
+                    return web.json_response({"error": "No floor price found"}, status=404, headers=cors())
+                else:
+                    return web.json_response({"error": f"API returned {resp.status}"}, status=503, headers=cors())
+    except Exception as e:
+        logger.error(f"Stargaze floor: {e}")
+        return web.json_response({"error": str(e)}, status=500, headers=cors())
+
 async def a_dashboard(r):
     if not check_key(r): return denied()
     try:
@@ -1600,6 +1631,7 @@ async def start_api():
     app.router.add_get('/api/alerts', a_alerts)
     app.router.add_get('/api/alerts/purge', a_purge_alerts)
     app.router.add_get('/api/prices', a_prices)
+    app.router.add_get('/api/stargaze-floor/{sg721}', a_stargaze_floor)
     runner = web.AppRunner(app); await runner.setup()
     await web.TCPSite(runner, '0.0.0.0', 8080).start()
     logger.info("🌐 API: 8080 · Dashboard: /")
