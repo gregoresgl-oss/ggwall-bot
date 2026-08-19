@@ -772,10 +772,14 @@ def menu_buttons():
 
     sl = "ON" if settings.get("sleep_enabled") else "OFF"
     sl_h = f"{settings.get('sleep_start',3):02d}:00-{settings.get('sleep_end',7):02d}:00"
+    
+    sg = "ON" if settings.get("small_giveaway_instant", True) else "OFF"
 
     rows = [
         # ── Toggles (3 ανά σειρά) ──
         [Button.inline(f"⚡ Auto · {ac}", b"toggle_ac"), Button.inline(f"🎲 Human · {sd}", b"toggle_sd"), Button.inline(f"😴 Sleep · {sl}", b"toggle_sleep")],
+        # ── Small Giveaway Toggle ──
+        [Button.inline(f"🎯 Small GA · {sg}", b"toggle_small_ga")],
         # ── Settings ──
         [Button.inline(f"🎯 Buttons · {bo}", b"toggle_bo"), Button.inline("⚙️ Jitter", b"delays"), Button.inline(f"🕐 {sl_h}", b"sleep_cfg")],
         # ── Filters ──
@@ -1086,6 +1090,13 @@ async def on_cb(event):
             save_settings(settings)
             st = "ON 😴" if settings["sleep_enabled"] else "OFF ⚡"
             await event.answer(f"Sleep mode: {st}", alert=False)
+            await event.edit(menu_text(), buttons=menu_buttons())
+
+        elif data == "toggle_small_ga":
+            settings["small_giveaway_instant"] = not settings.get("small_giveaway_instant", True)
+            save_settings(settings)
+            st = "ON 🏃" if settings["small_giveaway_instant"] else "OFF 🐢"
+            await event.answer(f"Small GA instant: {st}", alert=False)
             await event.edit(menu_text(), buttons=menu_buttons())
 
         elif data == "sleep_cfg":

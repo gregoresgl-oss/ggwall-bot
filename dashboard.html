@@ -210,14 +210,6 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
       <div id="cfg-nft-list" class="cfg-list"></div>
     </div>
     <div class="cfg-sect">
-      <div class="lbl">Instant claim for small giveaways</div>
-      <div class="cfg-help">Giveaways ≤10 spots: auto-click at 0s delay (no jitter). Larger giveaways use normal jitter. Useful to catch honeypots before admins notice bots.</div>
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 0;">
-        <input id="cfg-small-instant" type="checkbox" style="cursor:pointer;" />
-        <span>Enabled</span>
-      </label>
-    </div>
-    <div class="cfg-sect">
       <div class="lbl">Delete alerts from channel</div>
       <div class="cfg-help">Permanently removes alerts and adjusts stats.</div>
       <div class="row">
@@ -268,7 +260,6 @@ let MANUAL_TOKENS=JSON.parse(localStorage.getItem('ggwall_manual_tokens')||'{}')
 let MANUAL_WITHDRAWALS=JSON.parse(localStorage.getItem('ggwall_manual_withdrawals')||'{}');
 let MANUAL_PRICES=JSON.parse(localStorage.getItem('ggwall_manual_prices')||'{}');
 let MANUAL_NFTS=JSON.parse(localStorage.getItem('ggwall_manual_nfts')||'[]');
-let SMALL_GIVEAWAY_INSTANT=JSON.parse(localStorage.getItem('ggwall_small_instant')||'true');
 let ALL_CHANNELS=new Set();
 
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
@@ -579,14 +570,13 @@ function render(s1,s2,set1,set2,a1,a2){
 }
 
 // Config
-function showCfg(){document.getElementById('cfg-n1').value=BOT1_NAME;document.getElementById('cfg-n2').value=BOT2_NAME;document.getElementById('cfg-u2').value=REMOTE||'';document.getElementById('cfg-small-instant').checked=SMALL_GIVEAWAY_INSTANT;document.getElementById('cfg-panel').style.display='block';document.getElementById('cfg-cancel').style.display=REMOTE?'inline-block':'none';renderManualTokens();renderManualWithdraws();renderManualPrices();renderManualNfts();renderPurgeDropdown();}
+function showCfg(){document.getElementById('cfg-n1').value=BOT1_NAME;document.getElementById('cfg-n2').value=BOT2_NAME;document.getElementById('cfg-u2').value=REMOTE||'';document.getElementById('cfg-panel').style.display='block';document.getElementById('cfg-cancel').style.display=REMOTE?'inline-block':'none';renderManualTokens();renderManualWithdraws();renderManualPrices();renderManualNfts();renderPurgeDropdown();}
 function hideCfg(){document.getElementById('cfg-panel').style.display='none';}
 function saveConfig(){
   BOT1_NAME=document.getElementById('cfg-n1').value.trim()||'GGWALL';
   BOT2_NAME=document.getElementById('cfg-n2').value.trim()||'GGWALL2';
-  SMALL_GIVEAWAY_INSTANT=document.getElementById('cfg-small-instant').checked;
   const url=document.getElementById('cfg-u2').value.trim().replace(/\/$/,'');
-  localStorage.setItem('ggwall_bot1_name',BOT1_NAME);localStorage.setItem('ggwall_bot2_name',BOT2_NAME);localStorage.setItem('ggwall_small_instant',JSON.stringify(SMALL_GIVEAWAY_INSTANT));
+  localStorage.setItem('ggwall_bot1_name',BOT1_NAME);localStorage.setItem('ggwall_bot2_name',BOT2_NAME);
   if(!url){localStorage.removeItem('ggwall_bot2_url');REMOTE='';}
   else if(!url.startsWith('http')){alert('URL must start with https://');return;}
   else{localStorage.setItem('ggwall_bot2_url',url);REMOTE=url;}
