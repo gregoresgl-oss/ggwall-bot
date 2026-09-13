@@ -64,7 +64,8 @@ DEFAULT_SETTINGS = {
     "capacity_threshold": 70,  # % πληρότητας → πάτα ΤΩΡΑ (ασφάλεια)
     "small_giveaway_instant": True,  # instant click για ≤10 spots
     "high_value_instant": True,      # instant click για high value giveaways
-    "high_value_threshold": 0.5,     # minimum ATOM per person για instant
+    "high_value_threshold": 0.5,     # minimum amount per person για instant
+    "high_value_denom": "atom",      # coin type: atom, osmo, stars, all
     "sleep_enabled": False,    # ώρες ύπνου on/off
     "sleep_start": 3,          # ώρα έναρξης ύπνου (0-23)
     "sleep_end": 7             # ώρα λήξης ύπνου (0-23)
@@ -308,17 +309,35 @@ def pick_jitter_delay():
     return round(random.uniform(lo, hi), 2)
 
 
-def parse_high_value(msg_text):
+def parse_high_value(msg_text, denom="atom"):
     """
-    Αναλύει το κείμενο ενός giveaway για να βρει 'X $ATOM each' pattern.
+    Αναλύει το κείμενο ενός giveaway για να βρει 'X $COIN each' pattern.
     Επιστρέφει: float amount ή None αν δεν βρεθεί
+    
+    denom: "atom" | "osmo" | "stars" | "all"
+    - "atom": μόνο ATOM
+    - "osmo": μόνο OSMO
+    - "stars": μόνο STARS
+    - "all": οποιοδήποτε coin
+    
     Παραδείγματα: "2 $ATOM each", "$2 each", "0.5 ATOM each"
     """
     import re
-    # Patterns: "X $ATOM each", "X ATOM each", "$X each"
+    
+    if denom == "all":
+        coin_pattern = r'(?:ATOM|OSMO|STARS|atom|osmo|stars)'
+    elif denom == "atom":
+        coin_pattern = r'(?:ATOM|atom)'
+    elif denom == "osmo":
+        coin_pattern = r'(?:OSMO|osmo)'
+    elif denom == "stars":
+        coin_pattern = r'(?:STARS|stars)'
+    else:
+        return None
+    
     patterns = [
-        r'(\d+\.?\d*)\s*\$?\s*(?:ATOM|STARS|atom|stars)\s+each',
-        r'\$?\s*(\d+\.?\d*)\s+(?:ATOM|STARS|atom|stars)\s+each',
+        rf'(\d+\.?\d*)\s*\$?\s*{coin_pattern}\s+each',
+        rf'\$?\s*(\d+\.?\d*)\s+{coin_pattern}\s+each',
     ]
     try:
         for pattern in patterns:
@@ -895,20 +914,23 @@ def build_submenu(kind):
     elif kind == "high_value":
         hv_enabled = "🟢 ON" if settings.get("high_value_instant") else "🔴 OFF"
         threshold = settings.get("high_value_threshold", 0.5)
+        denom = settings.get("high_value_denom", "atom").upper()
         text = (
             "💎 **High Value Giveaways**\n"
             "─────────────────────\n\n"
             f"{hv_enabled}\n\n"
             "Giveaways με **per-person amount** ≥ threshold:\n"
             "→ ΑΜΕΣΟ claim (bypass sleep/jitter/capacity)\n\n"
-            f"💎 **Threshold:** `{threshold} ATOM`\n\n"
+            f"💎 **Threshold:** `{threshold}`\n"
+            f"🪙 **Coin:** `{denom}`\n\n"
             "_Όταν το bot διαβάσει π.χ._\n"
-            "_'2 $ATOM each' → detect ως high value_\n"
-            "_κι αν 2 ≥ {threshold} → instant click!_\n\n"
+            f"_'2 {denom} each' → detect ως high value_\n"
+            f"_κι αν 2 ≥ {threshold} → instant click!_\n\n"
             "_Πάτησε για αλλαγή:_"
         )
         btns = [
             [Button.inline(f"💎 Threshold: {threshold}", b"set_hv_thresh")],
+            [Button.inline(f"🪙 Coin: {denom}", b"set_hv_denom")],
             [Button.inline("← Πίσω", b"back")]
         ]
         return text, btns
@@ -1201,6 +1223,39 @@ async def on_cb(event):
         elif data == "set_hv_thresh":
             user_states[event.sender_id] = "SET_HV_THRESH"
             await event.edit("💎 Γράψε το **high value threshold** (ATOM per person):\n\n_Giveaways με per-person amount ≥ αυτό πατάνε αμέσως._\n_π.χ. 0.5_")
+        elif data == "set_hv_denom":
+            denom = settings.get("high_value_denom", "atom").upper()
+            text = f"🪙 **Επιλέξ Coin** (τρέχον: {denom})"
+            btns = [
+                [Button.inline("ATOM", b"hv_denom_atom"), Button.inline("OSMO", b"hv_denom_osmo")],
+                [Button.inline("STARS", b"hv_denom_stars"), Button.inline("Όλα", b"hv_denom_all")],
+                [Button.inline("← Πίσω", b"high_value")]
+            ]
+            await event.edit(text, buttons=btns)
+        elif data == "hv_denom_atom":
+            settings["high_value_denom"] = "atom"
+            save_settings(settings)
+            await event.answer("🪙 Coin: ATOM ✓", alert=False)
+            text, btns = build_submenu("high_value")
+            await event.edit(text, buttons=btns)
+        elif data == "hv_denom_osmo":
+            settings["high_value_denom"] = "osmo"
+            save_settings(settings)
+            await event.answer("🪙 Coin: OSMO ✓", alert=False)
+            text, btns = build_submenu("high_value")
+            await event.edit(text, buttons=btns)
+        elif data == "hv_denom_stars":
+            settings["high_value_denom"] = "stars"
+            save_settings(settings)
+            await event.answer("🪙 Coin: STARS ✓", alert=False)
+            text, btns = build_submenu("high_value")
+            await event.edit(text, buttons=btns)
+        elif data == "hv_denom_all":
+            settings["high_value_denom"] = "all"
+            save_settings(settings)
+            await event.answer("🪙 Coin: Όλα ✓", alert=False)
+            text, btns = build_submenu("high_value")
+            await event.edit(text, buttons=btns)
 
         elif data == "refresh":
             await event.edit("🔄 Ανανέωση...")
