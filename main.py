@@ -63,6 +63,8 @@ DEFAULT_SETTINGS = {
     "jitter_max": 15.0,        # μέγιστο random delay
     "capacity_threshold": 70,  # % πληρότητας → πάτα ΤΩΡΑ (ασφάλεια)
     "small_giveaway_instant": True,  # instant click για ≤10 spots
+    "high_value_instant": True,      # instant click για high value giveaways
+    "high_value_threshold": 0.5,     # minimum ATOM per person για instant
     "sleep_enabled": False,    # ώρες ύπνου on/off
     "sleep_start": 3,          # ώρα έναρξης ύπνου (0-23)
     "sleep_end": 7             # ώρα λήξης ύπνου (0-23)
@@ -304,6 +306,28 @@ def pick_jitter_delay():
     if hi < lo:
         lo, hi = hi, lo
     return round(random.uniform(lo, hi), 2)
+
+
+def parse_high_value(msg_text):
+    """
+    Αναλύει το κείμενο ενός giveaway για να βρει 'X $ATOM each' pattern.
+    Επιστρέφει: float amount ή None αν δεν βρεθεί
+    Παραδείγματα: "2 $ATOM each", "$2 each", "0.5 ATOM each"
+    """
+    import re
+    # Patterns: "X $ATOM each", "X ATOM each", "$X each"
+    patterns = [
+        r'(\d+\.?\d*)\s*\$?\s*(?:ATOM|STARS|atom|stars)\s+each',
+        r'\$?\s*(\d+\.?\d*)\s+(?:ATOM|STARS|atom|stars)\s+each',
+    ]
+    try:
+        for pattern in patterns:
+            match = re.search(pattern, msg_text, re.IGNORECASE)
+            if match:
+                return float(match.group(1))
+    except:
+        pass
+    return None
 
 
 async def smart_wait_and_check(chat_id, msg_id, target_delay, button_index):
@@ -774,12 +798,13 @@ def menu_buttons():
     sl_h = f"{settings.get('sleep_start',3):02d}:00-{settings.get('sleep_end',7):02d}:00"
     
     sg = "ON" if settings.get("small_giveaway_instant", True) else "OFF"
+    hv = "ON" if settings.get("high_value_instant", True) else "OFF"
 
     rows = [
         # ── Toggles (3 ανά σειρά) ──
         [Button.inline(f"⚡ Auto · {ac}", b"toggle_ac"), Button.inline(f"🎲 Human · {sd}", b"toggle_sd"), Button.inline(f"😴 Sleep · {sl}", b"toggle_sleep")],
-        # ── Small Giveaway Toggle ──
-        [Button.inline(f"🎯 Small GA · {sg}", b"toggle_small_ga")],
+        # ── Feature toggles ──
+        [Button.inline(f"🎯 Small GA · {sg}", b"toggle_small_ga"), Button.inline(f"💎 High Value · {hv}", b"toggle_hv")],
         # ── Settings ──
         [Button.inline(f"🎯 Buttons · {bo}", b"toggle_bo"), Button.inline("⚙️ Jitter", b"delays"), Button.inline(f"🕐 {sl_h}", b"sleep_cfg")],
         # ── Filters ──
@@ -826,12 +851,16 @@ def build_submenu(kind):
             "🏃 **Μικρά giveaways (≤10 θέσεις):**\n"
             "     Αυτόματα instant click\n"
             "     (γεμίζουν γρήγορα, δεν περιμένει)\n\n"
+            "💎 **High value giveaways:**\n"
+            "     Αυτόματα instant click\n"
+            "     (παρακάμπτει sleep & jitter)\n\n"
             "_Πάτησε για αλλαγή:_"
         )
         btns = [
             [Button.inline(f"🎲 Min: {jmin:g}s", b"set_jmin"),
              Button.inline(f"🎲 Max: {jmax:g}s", b"set_jmax")],
             [Button.inline(f"⚡ Safety: {cap}%", b"set_cap")],
+            [Button.inline("💎 High Value", b"high_value")],
             [Button.inline("← Πίσω", b"back")]
         ]
         return text, btns
@@ -863,6 +892,27 @@ def build_submenu(kind):
         text = "🏷️ **Λέξεις Κουμπιών**\n─────────────────────\n\n" + ("\n".join(f"• {c}" for c in cl) if cl else "_Κενό_")
         return text, btns
 
+    elif kind == "high_value":
+        hv_enabled = "🟢 ON" if settings.get("high_value_instant") else "🔴 OFF"
+        threshold = settings.get("high_value_threshold", 0.5)
+        text = (
+            "💎 **High Value Giveaways**\n"
+            "─────────────────────\n\n"
+            f"{hv_enabled}\n\n"
+            "Giveaways με **per-person amount** ≥ threshold:\n"
+            "→ ΑΜΕΣΟ claim (bypass sleep/jitter/capacity)\n\n"
+            f"💎 **Threshold:** `{threshold} ATOM`\n\n"
+            "_Όταν το bot διαβάσει π.χ._\n"
+            "_'2 $ATOM each' → detect ως high value_\n"
+            "_κι αν 2 ≥ {threshold} → instant click!_\n\n"
+            "_Πάτησε για αλλαγή:_"
+        )
+        btns = [
+            [Button.inline(f"💎 Threshold: {threshold}", b"set_hv_thresh")],
+            [Button.inline("← Πίσω", b"back")]
+        ]
+        return text, btns
+
     elif kind == "sleep":
         s = settings.get("sleep_start", 3)
         e = settings.get("sleep_end", 7)
@@ -892,6 +942,7 @@ STATE_TO_SUBMENU = {
     "SET_JMIN": "delays",
     "SET_JMAX": "delays",
     "SET_CAP": "delays",
+    "SET_HV_THRESH": "high_value",
     "SET_SLEEP_S": "sleep",
     "SET_SLEEP_E": "sleep",
     "ADD_KW": "keywords",
@@ -1099,6 +1150,13 @@ async def on_cb(event):
             await event.answer(f"Small GA instant: {st}", alert=False)
             await event.edit(menu_text(), buttons=menu_buttons())
 
+        elif data == "toggle_hv":
+            settings["high_value_instant"] = not settings.get("high_value_instant", True)
+            save_settings(settings)
+            st = "ON 💎" if settings["high_value_instant"] else "OFF 👻"
+            await event.answer(f"High value instant: {st}", alert=False)
+            await event.edit(menu_text(), buttons=menu_buttons())
+
         elif data == "sleep_cfg":
             s = settings.get("sleep_start", 3)
             e = settings.get("sleep_end", 7)
@@ -1140,6 +1198,9 @@ async def on_cb(event):
         elif data == "set_cap":
             user_states[event.sender_id] = "SET_CAP"
             await event.edit("⚡ Γράψε το **safety threshold** (%):\n\n_Αν γεμίσει τόσο %, πατάει αμέσως._\n_π.χ. 70_")
+        elif data == "set_hv_thresh":
+            user_states[event.sender_id] = "SET_HV_THRESH"
+            await event.edit("💎 Γράψε το **high value threshold** (ATOM per person):\n\n_Giveaways με per-person amount ≥ αυτό πατάνε αμέσως._\n_π.χ. 0.5_")
 
         elif data == "refresh":
             await event.edit("🔄 Ανανέωση...")
@@ -1215,7 +1276,10 @@ async def on_cb(event):
                 "• Safety %: αν γεμίσει τόσο,\n"
                 "  πατάει αμέσως (να μη χάσει)\n"
                 "• 🏃 Μικρά giveaways (≤10 θέσεις):\n"
-                "  αυτόματα instant click, δεν περιμένει\n\n"
+                "  αυτόματα instant click, δεν περιμένει\n"
+                "• 💎 High Value (≥ threshold ATOM each):\n"
+                "  αυτόματα instant click, παρακάμπτει\n"
+                "  sleep & jitter\n\n"
 
                 "**🕐 Sleep Hours**\n"
                 "Ρυθμίσεις ωρών ύπνου.\n"
@@ -1247,6 +1311,14 @@ async def on_cb(event):
                 "🌐 GGWALL·NET"
             )
             await event.edit(help_text, buttons=[[Button.inline("← Πίσω", b"back")]])
+
+        elif data == "high_value":
+            text, btns = build_submenu("high_value")
+            await event.edit(text, buttons=btns)
+
+        elif data == "set_hv_thresh":
+            await event.answer("Παρακαλώ αποστείλετε το νέο threshold (π.χ. 0.5):", alert=True)
+            # Θα διαχειριστεί ο on_text handler
 
         elif data == "back":
             await event.edit(menu_text(), buttons=menu_buttons())
@@ -1321,6 +1393,18 @@ async def on_text(event):
                     changed = True
             except ValueError:
                 confirm_msg = "⚠️ Βάλε έγκυρο αριθμό (π.χ. 70)"
+        elif st == "SET_HV_THRESH":
+            try:
+                val = float(t.replace(",", ".").strip())
+                if val < 0 or val > 1000:
+                    confirm_msg = "⚠️ Βάλε αριθμό 0-1000 ATOM"
+                else:
+                    settings["high_value_threshold"] = val
+                    save_settings(settings)
+                    confirm_msg = f"✅ High value threshold: **{val:g} ATOM**"
+                    changed = True
+            except ValueError:
+                confirm_msg = "⚠️ Βάλε έγκυρο αριθμό (π.χ. 0.5)"
         elif st in ("SET_SLEEP_S", "SET_SLEEP_E"):
             try:
                 val = int(float(t.strip()))
