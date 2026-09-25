@@ -701,10 +701,22 @@ async def on_msg(event):
         # Auto-click
         clicked = False; ctime = ""
         if settings.get("auto_click", False) and found_btn:
-            # Sleep mode check
-            if is_sleeping():
+            # Parse high value ONCE (efficient)
+            high_value = False
+            msg_text = event.message.text or ""
+            if settings.get("high_value_instant", True):
+                denom = settings.get("high_value_denom", "atom")
+                amount = parse_high_value(msg_text, denom)
+                threshold = settings.get("high_value_threshold", 0.5)
+                if amount is not None and amount >= threshold:
+                    high_value = True
+                    logger.info(f"💎 High value! {amount} {denom.upper()} >= {threshold} → Instant claim (bypass sleep/jitter/capacity)!")
+            
+            # Sleep mode check (but bypass for high value)
+            if is_sleeping() and not high_value:
                 logger.debug("😴 Sleeping — skipped claim")
                 return
+            
             # Human jitter + capacity safety check
             wait_reason = "instant"
             waited_time = 0.0
@@ -724,6 +736,9 @@ async def on_msg(event):
                     # Μικρό giveaway → ΑΜΕΣΩΣ (αν το setting είναι enabled)
                     target = 0
                     logger.info(f"🏃 Small giveaway ({tot} spots)! Instant click!")
+                elif high_value:
+                    # High value giveaway → ΑΜΕΣΩΣ (παρακάμπτει jitter/capacity)
+                    target = 0
                 else:
                     target = pick_jitter_delay()
 
