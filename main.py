@@ -1519,6 +1519,11 @@ async def on_cb(event):
                 "• 💎 High Value (≥ threshold ATOM each):\n"
                 "  αυτόματα instant click, παρακάμπτει\n"
                 "  sleep & jitter\n\n"
+                "**💎 Diamond Hands**\n"
+                "• Πατάει τη θέση όταν αξίζει πάνω από το ποσό σου,\n"
+                "  ή όταν γεμίσει το ποσοστό (μικρά/μεγάλα γύρο),\n"
+                "  ή μετά τον χρόνο ασφαλείας.\n"
+                "• Ρυθμίσεις: 💎 Diamond Hands → ⚙️ DH Ρυθμίσεις\n\n"
 
                 "**🕐 Sleep Hours**\n"
                 "Ρυθμίσεις ωρών ύπνου.\n"
