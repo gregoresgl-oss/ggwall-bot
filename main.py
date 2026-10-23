@@ -69,6 +69,7 @@ DEFAULT_SETTINGS = {
     "dh_enabled": True,              # Diamond Hands auto-take ON/OFF
     "dh_instant_amount": 1.0,        # επόμενη θέση > X ATOM → πάτα αμέσως
     "dh_fill_pct": 30,               # γέμισμα ≥ X% → πάτα
+    "dh_safe_min": 3.0,              # μετά από X λεπτά πατάει ό,τι υπάρχει (λήξη 3-10 λεπτά)
     "sleep_enabled": False,    # ώρες ύπνου on/off
     "sleep_start": 3,          # ώρα έναρξης ύπνου (0-23)
     "sleep_end": 7             # ώρα λήξης ύπνου (0-23)
@@ -356,7 +357,6 @@ def parse_high_value(msg_text, denom="atom"):
 DH_TAKE_RE = re.compile(r'Take\s+([\d.,]+)\s*\$?([A-Z][A-Z0-9]{1,15})\s*\((\d+)/(\d+)\)', re.IGNORECASE)
 DH_TOOK_RE = re.compile(r'You took\s+#(\d+)\s+of\s+(\d+)', re.IGNORECASE)
 DH_REWARD_RE = re.compile(r'received\s+([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})', re.IGNORECASE)
-DH_SAFE_MIN = 3.0       # πρώτο πιθανό τέλος γύρου (3-10 λεπτά)
 dh_clicked = set()      # rounds που ήδη πατήσαμε
 dh_timers = set()       # rounds με ενεργό timer ασφαλείας
 
@@ -397,7 +397,7 @@ async def dh_check(chat_id, msg_id):
         reason = f"επόμενη θέση {amount:g} > {inst_amt:g} ATOM"
     elif fill >= fill_pct:
         reason = f"γέμισμα {fill:.0f}% ≥ {fill_pct}%"
-    elif age >= DH_SAFE_MIN * 60:
+    elif age >= settings.get("dh_safe_min", 3.0) * 60:
         reason = f"ασφάλεια: {age / 60:.1f} λεπτά από την αρχή"
     else:
         return  # περιμένει
@@ -425,7 +425,7 @@ async def dh_check(chat_id, msg_id):
 
 async def _dh_timer(chat_id, msg_id, start_ts):
     # Ασφάλεια: μετά από DH_SAFE_MIN λεπτά ο γύρος μπορεί να λήξει ανά πάσα στιγμή.
-    wait = DH_SAFE_MIN * 60 - (time.time() - start_ts)
+    wait = settings.get("dh_safe_min", 3.0) * 60 - (time.time() - start_ts)
     if wait > 0:
         await asyncio.sleep(wait)
     try:
@@ -1064,6 +1064,7 @@ def build_submenu(kind):
     elif kind == "dh":
         amt = settings.get("dh_instant_amount", 1.0)
         fill = settings.get("dh_fill_pct", 30)
+        safe = settings.get("dh_safe_min", 3.0)
         on = "🟢 ON" if settings.get("dh_enabled", True) else "🔴 OFF"
         text = (
             "💎 **Diamond Hands**\n"
@@ -1072,12 +1073,13 @@ def build_submenu(kind):
             "Πατάει η επόμενη θέση όταν:\n"
             f"• η θέση αξίζει πάνω από **{amt:g} ATOM**, ή\n"
             f"• έχει γεμίσει **{fill}%**, ή\n"
-            "• πέρασαν **3 λεπτά** (πριν τη λήξη)\n\n"
+            f"• πέρασαν **{safe:g} λεπτά** (πριν τη λήξη)\n\n"
             "_Πάτησε για αλλαγή:_"
         )
         btns = [
             [Button.inline(f"💰 Ποσό: {amt:g} ATOM", b"set_dh_amt")],
             [Button.inline(f"📊 Γέμισμα: {fill}%", b"set_dh_fill")],
+            [Button.inline(f"⏱️ Χρόνος: {safe:g} λεπτά", b"set_dh_time")],
             [Button.inline("← Πίσω", b"back")],
         ]
         return text, btns
@@ -1138,6 +1140,7 @@ STATE_TO_SUBMENU = {
     "SET_HV_THRESH": "high_value",
     "SET_DH_AMT": "dh",
     "SET_DH_FILL": "dh",
+    "SET_DH_TIME": "dh",
     "SET_SLEEP_S": "sleep",
     "SET_SLEEP_E": "sleep",
     "ADD_KW": "keywords",
@@ -1554,6 +1557,10 @@ async def on_cb(event):
             user_states[event.sender_id] = "SET_DH_AMT"
             await event.edit("💎 Γράψε το **ποσό** (ATOM):\n\n_Αν η επόμενη θέση αξίζει πάνω από αυτό, πατάει αμέσως._\n_π.χ. 1_")
 
+        elif data == "set_dh_time":
+            user_states[event.sender_id] = "SET_DH_TIME"
+            await event.edit("⏱️ Γράψε τον **χρόνο ασφαλείας** (λεπτά):\n\n_Μετά από τόσα λεπτά πατάει ό,τι υπάρχει._\n_π.χ. 3_")
+
         elif data == "set_dh_fill":
             user_states[event.sender_id] = "SET_DH_FILL"
             await event.edit("💎 Γράψε το **γέμισμα** (%):\n\n_Αν γεμίσει τόσο %, πατάει._\n_π.χ. 30_")
@@ -1675,6 +1682,18 @@ async def on_text(event):
                     changed = True
             except ValueError:
                 confirm_msg = "⚠️ Βάλε έγκυρο αριθμό (π.χ. 30)"
+        elif st == "SET_DH_TIME":
+            try:
+                val = float(t.replace(",", ".").strip())
+                if val < 0.5 or val > 10:
+                    confirm_msg = "⚠️ Βάλε χρόνο 0.5-10 λεπτά"
+                else:
+                    settings["dh_safe_min"] = val
+                    save_settings(settings)
+                    confirm_msg = f"✅ Diamond Hands χρόνος ασφαλείας: **{val:g} λεπτά**"
+                    changed = True
+            except ValueError:
+                confirm_msg = "⚠️ Βάλε έγκυρο αριθμό (π.χ. 3)"
         elif st in ("SET_SLEEP_S", "SET_SLEEP_E"):
             try:
                 val = int(float(t.strip()))
