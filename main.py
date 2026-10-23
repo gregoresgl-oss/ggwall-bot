@@ -66,6 +66,9 @@ DEFAULT_SETTINGS = {
     "high_value_instant": True,      # instant click για high value giveaways
     "high_value_threshold": 0.5,     # minimum amount per person για instant
     "high_value_denom": "atom",      # coin type: atom, osmo, stars, all
+    "dh_enabled": True,              # Diamond Hands auto-take ON/OFF
+    "dh_instant_amount": 1.0,        # επόμενη θέση > X ATOM → πάτα αμέσως
+    "dh_fill_pct": 30,               # γέμισμα ≥ X% → πάτα
     "sleep_enabled": False,    # ώρες ύπνου on/off
     "sleep_start": 3,          # ώρα έναρξης ύπνου (0-23)
     "sleep_end": 7             # ώρα λήξης ύπνου (0-23)
@@ -349,6 +352,101 @@ def parse_high_value(msg_text, denom="atom"):
     return None
 
 
+# ============ DIAMOND HANDS (Cosmobot rounds) ============
+DH_TAKE_RE = re.compile(r'Take\s+([\d.,]+)\s*\$?([A-Z][A-Z0-9]{1,15})\s*\((\d+)/(\d+)\)', re.IGNORECASE)
+DH_TOOK_RE = re.compile(r'You took\s+#(\d+)\s+of\s+(\d+)', re.IGNORECASE)
+DH_REWARD_RE = re.compile(r'received\s+([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})', re.IGNORECASE)
+DH_SAFE_MIN = 3.0       # πρώτο πιθανό τέλος γύρου (3-10 λεπτά)
+dh_clicked = set()      # rounds που ήδη πατήσαμε
+dh_timers = set()       # rounds με ενεργό timer ασφαλείας
+
+
+def dh_button_info(message):
+    # Βρίσκει το κουμπί 'Take X ATOM (cur/tot)'. Επιστρέφει (button, amount, cur, tot) ή None.
+    if not message or not message.buttons:
+        return None
+    for row in message.buttons:
+        for b in row:
+            m = DH_TAKE_RE.search(getattr(b, "text", "") or "")
+            if m:
+                try:
+                    return b, float(m.group(1).replace(",", "")), int(m.group(3)), int(m.group(4))
+                except Exception:
+                    return None
+    return None
+
+
+async def dh_check(chat_id, msg_id):
+    # Αποφασίζει αν πατάμε την επόμενη θέση. Καλείται σε κάθε edit και από το timer ασφαλείας.
+    key = f"{chat_id}_{msg_id}"
+    if key in dh_clicked:
+        return
+    fresh = await user_client.get_messages(chat_id, ids=msg_id)
+    info = dh_button_info(fresh)
+    if not info:
+        return
+    btn, amount, cur, tot = info
+    if tot <= 0 or cur >= tot:
+        return
+    fill = cur / tot * 100
+    inst_amt = settings.get("dh_instant_amount", 1.0)
+    fill_pct = settings.get("dh_fill_pct", 30)
+    age = time.time() - fresh.date.timestamp()
+
+    if amount > inst_amt:
+        reason = f"επόμενη θέση {amount:g} > {inst_amt:g} ATOM"
+    elif fill >= fill_pct:
+        reason = f"γέμισμα {fill:.0f}% ≥ {fill_pct}%"
+    elif age >= DH_SAFE_MIN * 60:
+        reason = f"ασφάλεια: {age / 60:.1f} λεπτά από την αρχή"
+    else:
+        return  # περιμένει
+
+    if is_sleeping() and amount <= inst_amt:
+        logger.debug("😴 DH: sleeping, skipped")
+        return
+
+    dh_clicked.add(key)
+    if len(dh_clicked) > 300:
+        dh_clicked.clear()
+    try:
+        await asyncio.wait_for(btn.click(), timeout=1.5)
+    except asyncio.TimeoutError:
+        pass
+    except Exception as e:
+        logger.error(f"DH click: {e}")
+        return
+    stats["dh_clicks"] = stats.get("dh_clicks", 0) + 1
+    save_stats(stats)
+    logger.info(f"💎 DH click: {btn.text} · {reason}")
+    await bot_client.send_message(owner_id,
+        f"💎 **Diamond Hands**: πάτησα **{btn.text}**\n_({reason})_", link_preview=False)
+
+
+async def _dh_timer(chat_id, msg_id, start_ts):
+    # Ασφάλεια: μετά από DH_SAFE_MIN λεπτά ο γύρος μπορεί να λήξει ανά πάσα στιγμή.
+    wait = DH_SAFE_MIN * 60 - (time.time() - start_ts)
+    if wait > 0:
+        await asyncio.sleep(wait)
+    try:
+        await dh_check(chat_id, msg_id)
+    except Exception as e:
+        logger.error(f"DH timer: {e}")
+
+
+async def dh_handle(event):
+    # Είσοδος για κάθε DH μήνυμα (νέο ή edited).
+    if not settings.get("dh_enabled", True):
+        return
+    key = f"{event.chat_id}_{event.message.id}"
+    if key not in dh_timers:
+        dh_timers.add(key)
+        if len(dh_timers) > 300:
+            dh_timers.clear()
+        asyncio.create_task(_dh_timer(event.chat_id, event.message.id, event.message.date.timestamp()))
+    await dh_check(event.chat_id, event.message.id)
+
+
 async def smart_wait_and_check(chat_id, msg_id, target_delay, button_index):
     """
     Περιμένει μέχρι target_delay ΑΛΛΑ ελέγχει τον counter κάθε ~0.5s.
@@ -461,6 +559,36 @@ async def on_cosmobot_dm(event):
                 await bot_client.send_message(owner_id,
                     f"🖼️ **NFT Claimed!**\n\n**{nft_name}**\n{nft_collection}\n🎉", link_preview=False)
                 logger.info(f"🖼️ NFT claimed: {nft_name}")
+
+        # 💎 DIAMOND HANDS reward: "You took #3 of 5 ... received 0.00164 $ATOM"
+        elif "diamond hands" in tl and "you took" in tl:
+            took_m = DH_TOOK_RE.search(text)
+            rew_m = DH_REWARD_RE.search(text)
+            seen = stats.setdefault("dh_seen_ids", [])
+            if event.message.id not in seen:
+                seen.append(event.message.id)
+                stats["dh_seen_ids"] = seen[-300:]
+                amt, sym = None, None
+                if rew_m:
+                    try:
+                        amt = float(rew_m.group(1).replace(",", ""))
+                        sym = rew_m.group(2).upper()
+                    except Exception:
+                        pass
+                pos = took_m.group(1) if took_m else "?"
+                of = took_m.group(2) if took_m else "?"
+                stats["dh_wins"] = stats.get("dh_wins", 0) + 1
+                if amt and sym:
+                    stats.setdefault("dh_tokens", {})
+                    stats["dh_tokens"][sym] = round(stats["dh_tokens"].get(sym, 0) + amt, 6)
+                rounds = stats.setdefault("dh_rounds", [])
+                rounds.append({"place": pos, "of": of, "amount": amt, "symbol": sym, "date": time.strftime("%Y-%m-%d")})
+                stats["dh_rounds"] = rounds[-200:]
+                save_stats(stats)
+                if amt and sym:
+                    await bot_client.send_message(owner_id,
+                        f"💎 **Diamond Hands!** ({pos}η θέση από {of})\n\nΠήρες **{amt:g} ${sym}** 🎉", link_preview=False)
+                logger.info(f"💎 DH reward: #{pos}/{of} {amt} {sym}")
 
         # 🎮 MINIGAME reward: "You placed 2nd... won 0.28 $ATOM"
         elif "won" in tl and ("placed" in tl or "packet" in tl or "ibc-0" in tl):
@@ -603,6 +731,11 @@ async def on_msg(event):
             return
 
         msg_text = event.message.text or ""
+
+        # 💎 Diamond Hands: ξεχωριστή διαδρομή (κάθε edit ελέγχεται, χωρίς dedup/channels)
+        if "diamond hands" in msg_text.lower() and dh_button_info(event.message):
+            await dh_handle(event)
+            return
 
         if not settings.get("channels"):
             return
@@ -833,12 +966,14 @@ def menu_buttons():
     
     sg = "ON" if settings.get("small_giveaway_instant", True) else "OFF"
     hv = "ON" if settings.get("high_value_instant", True) else "OFF"
+    dh = "ON" if settings.get("dh_enabled", True) else "OFF"
 
     rows = [
         # ── Toggles (3 ανά σειρά) ──
         [Button.inline(f"⚡ Auto · {ac}", b"toggle_ac"), Button.inline(f"🎲 Human · {sd}", b"toggle_sd"), Button.inline(f"😴 Sleep · {sl}", b"toggle_sleep")],
         # ── Feature toggles ──
         [Button.inline(f"🎯 Small GA · {sg}", b"toggle_small_ga"), Button.inline(f"💎 High Value · {hv}", b"toggle_hv")],
+        [Button.inline(f"💎 Diamond Hands · {dh}", b"toggle_dh"), Button.inline("⚙️ DH Ρυθμίσεις", b"dh_cfg")],
         # ── Settings ──
         [Button.inline(f"🎯 Buttons · {bo}", b"toggle_bo"), Button.inline("⚙️ Jitter", b"delays"), Button.inline(f"🕐 {sl_h}", b"sleep_cfg")],
         # ── Filters ──
@@ -926,6 +1061,27 @@ def build_submenu(kind):
         text = "🏷️ **Λέξεις Κουμπιών**\n─────────────────────\n\n" + ("\n".join(f"• {c}" for c in cl) if cl else "_Κενό_")
         return text, btns
 
+    elif kind == "dh":
+        amt = settings.get("dh_instant_amount", 1.0)
+        fill = settings.get("dh_fill_pct", 30)
+        on = "🟢 ON" if settings.get("dh_enabled", True) else "🔴 OFF"
+        text = (
+            "💎 **Diamond Hands**\n"
+            "─────────────────────\n\n"
+            f"{on}\n\n"
+            "Πατάει η επόμενη θέση όταν:\n"
+            f"• η θέση αξίζει πάνω από **{amt:g} ATOM**, ή\n"
+            f"• έχει γεμίσει **{fill}%**, ή\n"
+            "• πέρασαν **3 λεπτά** (πριν τη λήξη)\n\n"
+            "_Πάτησε για αλλαγή:_"
+        )
+        btns = [
+            [Button.inline(f"💰 Ποσό: {amt:g} ATOM", b"set_dh_amt")],
+            [Button.inline(f"📊 Γέμισμα: {fill}%", b"set_dh_fill")],
+            [Button.inline("← Πίσω", b"back")],
+        ]
+        return text, btns
+
     elif kind == "high_value":
         hv_enabled = "🟢 ON" if settings.get("high_value_instant") else "🔴 OFF"
         threshold = settings.get("high_value_threshold", 0.5)
@@ -980,6 +1136,8 @@ STATE_TO_SUBMENU = {
     "SET_JMAX": "delays",
     "SET_CAP": "delays",
     "SET_HV_THRESH": "high_value",
+    "SET_DH_AMT": "dh",
+    "SET_DH_FILL": "dh",
     "SET_SLEEP_S": "sleep",
     "SET_SLEEP_E": "sleep",
     "ADD_KW": "keywords",
@@ -1382,6 +1540,24 @@ async def on_cb(event):
             )
             await event.edit(help_text, buttons=[[Button.inline("← Πίσω", b"back")]])
 
+        elif data == "toggle_dh":
+            settings["dh_enabled"] = not settings.get("dh_enabled", True)
+            save_settings(settings)
+            await event.answer(f"Diamond Hands: {'ON 💎' if settings['dh_enabled'] else 'OFF'}", alert=False)
+            await event.edit(menu_text(), buttons=menu_buttons())
+
+        elif data == "dh_cfg":
+            text, btns = build_submenu("dh")
+            await event.edit(text, buttons=btns)
+
+        elif data == "set_dh_amt":
+            user_states[event.sender_id] = "SET_DH_AMT"
+            await event.edit("💎 Γράψε το **ποσό** (ATOM):\n\n_Αν η επόμενη θέση αξίζει πάνω από αυτό, πατάει αμέσως._\n_π.χ. 1_")
+
+        elif data == "set_dh_fill":
+            user_states[event.sender_id] = "SET_DH_FILL"
+            await event.edit("💎 Γράψε το **γέμισμα** (%):\n\n_Αν γεμίσει τόσο %, πατάει._\n_π.χ. 30_")
+
         elif data == "high_value":
             text, btns = build_submenu("high_value")
             await event.edit(text, buttons=btns)
@@ -1475,6 +1651,30 @@ async def on_text(event):
                     changed = True
             except ValueError:
                 confirm_msg = "⚠️ Βάλε έγκυρο αριθμό (π.χ. 0.5)"
+        elif st == "SET_DH_AMT":
+            try:
+                val = float(t.replace(",", ".").strip())
+                if val < 0 or val > 1000:
+                    confirm_msg = "⚠️ Βάλε αριθμό 0-1000 ATOM"
+                else:
+                    settings["dh_instant_amount"] = val
+                    save_settings(settings)
+                    confirm_msg = f"✅ Diamond Hands ποσό: **{val:g} ATOM**"
+                    changed = True
+            except ValueError:
+                confirm_msg = "⚠️ Βάλε έγκυρο αριθμό (π.χ. 1)"
+        elif st == "SET_DH_FILL":
+            try:
+                val = int(float(t.replace(",", ".").strip()))
+                if val < 1 or val > 100:
+                    confirm_msg = "⚠️ Βάλε ποσοστό 1-100"
+                else:
+                    settings["dh_fill_pct"] = val
+                    save_settings(settings)
+                    confirm_msg = f"✅ Diamond Hands γέμισμα: **{val}%**"
+                    changed = True
+            except ValueError:
+                confirm_msg = "⚠️ Βάλε έγκυρο αριθμό (π.χ. 30)"
         elif st in ("SET_SLEEP_S", "SET_SLEEP_E"):
             try:
                 val = int(float(t.strip()))

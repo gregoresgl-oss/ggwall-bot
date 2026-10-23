@@ -482,6 +482,14 @@ function render(s1,s2,set1,set2,a1,a2){
         `<div class="r"><span class="k">${tokenIcon(k)} ${esc(k)} won</span><span class="v grn">${fmt(gtokens[k])}</span></div>`
       ).join('');
     }
+    const dhtok=st.dh_tokens||{};const dhk=Object.keys(dhtok).sort((a,b)=>dhtok[b]-dhtok[a]);
+    const dhw=st.dh_wins||0;
+    let dhBlock='';
+    if(dhw>0||dhk.length>0){
+      dhBlock=`<div class="divider">💎 Diamond Hands (${dhw} θέσεις)</div>`+dhk.map(k=>
+        `<div class="r"><span class="k">${tokenIcon(k)} ${esc(k)}</span><span class="v grn">${fmt(dhtok[k])}</span></div>`
+      ).join('');
+    }
     const ttokens=st.tip_tokens||{};const ttk=Object.keys(ttokens).sort((a,b)=>ttokens[b]-ttokens[a]);
     const tr=st.tips_received||0;
     let tipBlock='';
@@ -498,7 +506,7 @@ function render(s1,s2,set1,set2,a1,a2){
       <div class="r"><span class="k">Rejected</span><span class="v red">${rf}</span></div>
       <div class="r"><span class="k">Hit rate</span><span class="v grn">${hr}%</span></div>
       ${mainTok?'<div class="divider">🎯 Giveaway tokens</div>'+mainTok:''}
-      ${gameBlock}${tipBlock}
+      ${gameBlock}${dhBlock}${tipBlock}
     </div>`;
   }).join('');
 
@@ -531,12 +539,14 @@ function render(s1,s2,set1,set2,a1,a2){
   for(const src of[(s1?.game_tokens||{}),(s2?.game_tokens||{})]){for(const[k,v]of Object.entries(src))combGame[k]=(combGame[k]||0)+v;}
   const combTips={};
   for(const src of[(s1?.tip_tokens||{}),(s2?.tip_tokens||{})]){for(const[k,v]of Object.entries(src))combTips[k]=(combTips[k]||0)+v;}
-  const allConfKeys=new Set([...Object.keys(combConf),...Object.keys(combGame),...Object.keys(combTips),...Object.keys(MANUAL_TOKENS)]);
+  const combDH={};
+  for(const src of[(s1?.dh_tokens||{}),(s2?.dh_tokens||{})]){for(const[k,v]of Object.entries(src))combDH[k]=(combDH[k]||0)+v;}
+  const allConfKeys=new Set([...Object.keys(combConf),...Object.keys(combGame),...Object.keys(combTips),...Object.keys(combDH),...Object.keys(MANUAL_TOKENS)]);
   const combEst={};
   for(const src of[(s1?.tokens||{}),(s2?.tokens||{})]){for(const[k,v]of Object.entries(src))combEst[k]=(combEst[k]||0)+v;}
   const tokEl=document.getElementById('token-list');
   if(allConfKeys.size>0){
-    const all={};for(const k of allConfKeys)all[k]=(combConf[k]||0)+(combGame[k]||0)+(combTips[k]||0)+(MANUAL_TOKENS[k]||0);
+    const all={};for(const k of allConfKeys)all[k]=(combConf[k]||0)+(combGame[k]||0)+(combTips[k]||0)+(combDH[k]||0)+(MANUAL_TOKENS[k]||0);
     const keys=Object.keys(all).sort((a,b)=>all[b]-all[a]);
     let portfolioTotal = 0;
     tokEl.innerHTML=keys.map(k=>{
