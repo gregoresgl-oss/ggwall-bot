@@ -232,7 +232,7 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
   <div class="chart-card">
     <div class="chart-hdr">
       <h3>Daily activity</h3>
-      <span class="chart-legend"><span class="leg-dot grn"></span>Claims</span>
+      <span class="chart-legend"><span class="leg-dot grn"></span>Claims</span><span class="chart-legend"><span class="leg-dot" style="background:var(--amber)"></span>Diamond Hands</span>
     </div>
     <div class="chart-wrap" id="chart"></div>
   </div>
@@ -366,12 +366,13 @@ function renderChart(s1, s2) {
       label: dayNum + '',
       claims: (d1.claims || 0) + (d2.claims || 0),
       alerts: (d1.alerts || 0) + (d2.alerts || 0),
+      dhw: (d1.dh_wins || 0) + (d2.dh_wins || 0),
     });
   }
 
-  const maxVal = Math.max(1, ...days.map(d => d.claims));
+  const maxVal = Math.max(1, ...days.map(d => Math.max(d.claims, d.dhw)));
 
-  if (days.every(d => d.claims === 0)) {
+  if (days.every(d => d.claims === 0 && d.dhw === 0)) {
     el.innerHTML = '<div class="chart-empty">Δεν υπάρχουν δεδομένα ακόμα</div>';
     return;
   }
@@ -385,14 +386,24 @@ function renderChart(s1, s2) {
   days.forEach((d, i) => {
     const x = pad + i * (barW + barGap);
 
-    // Claims bar (green)
+    // Claims bar (green) — includes Diamond Hands clicks
+    const hasDh = d.dhw > 0;
+    const cw = hasDh ? Math.floor(barW * 0.6) : barW;
     if (d.claims > 0) {
       const claimH = Math.max(4, Math.round((d.claims / maxVal) * (H - 36)));
       const claimY = H - 20 - claimH;
-      bars += `<rect x="${x}" y="${claimY}" width="${barW}" height="${claimH}" rx="2" fill="var(--green)" opacity="0.8"/>`;
-      // Number — ensure stays inside viewBox
+      bars += `<rect x="${x}" y="${claimY}" width="${cw}" height="${claimH}" rx="2" fill="var(--green)" opacity="0.8"/>`;
       const textY = Math.max(12, claimY - 4);
-      bars += `<text x="${x + barW/2}" y="${textY}" text-anchor="middle" fill="var(--dim)" font-size="9" font-family="Inter">${d.claims}</text>`;
+      bars += `<text x="${x + cw/2}" y="${textY}" text-anchor="middle" fill="var(--dim)" font-size="9" font-family="Inter">${d.claims}</text>`;
+    }
+    // Diamond Hands rewards bar (amber)
+    if (hasDh) {
+      const dhH = Math.max(4, Math.round((d.dhw / maxVal) * (H - 36)));
+      const dhY = H - 20 - dhH;
+      const dx = x + cw + 2, dw = barW - cw - 2;
+      bars += `<rect x="${dx}" y="${dhY}" width="${dw}" height="${dhH}" rx="2" fill="var(--amber)" opacity="0.9"/>`;
+      const dtY = Math.max(12, dhY - 4);
+      bars += `<text x="${dx + dw/2}" y="${dtY}" text-anchor="middle" fill="var(--amber)" font-size="9" font-family="Inter">${d.dhw}</text>`;
     }
 
     // Day label at bottom

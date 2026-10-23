@@ -168,6 +168,8 @@ def bump_daily(kind, tok_sym=None, tok_amt=None):
         day["confirmed"] = day.get("confirmed", 0) + 1
     elif kind == "rejected":
         day["rejected"] = day.get("rejected", 0) + 1
+    elif kind == "dh":
+        day["dh_wins"] = day.get("dh_wins", 0) + 1
     # Κράτα μόνο τις τελευταίες 60 μέρες (καθάρισμα)
     if len(stats["daily"]) > 60:
         for old_key in sorted(stats["daily"].keys())[:-60]:
@@ -420,6 +422,7 @@ async def dh_check(chat_id, msg_id):
         logger.error(f"DH click: {e}")
         return
     stats["dh_clicks"] = stats.get("dh_clicks", 0) + 1
+    bump_daily("claim")
     save_stats(stats)
     logger.info(f"💎 DH click: {btn.text} · {reason}")
     await bot_client.send_message(owner_id,
@@ -581,6 +584,7 @@ async def on_cosmobot_dm(event):
                 pos = took_m.group(1) if took_m else "?"
                 of = took_m.group(2) if took_m else "?"
                 stats["dh_wins"] = stats.get("dh_wins", 0) + 1
+                bump_daily("dh")
                 if amt and sym:
                     stats.setdefault("dh_tokens", {})
                     stats["dh_tokens"][sym] = round(stats["dh_tokens"].get(sym, 0) + amt, 6)
