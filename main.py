@@ -69,7 +69,9 @@ DEFAULT_SETTINGS = {
     "dh_enabled": True,              # Diamond Hands auto-take ON/OFF
     "dh_instant_amount": 1.0,        # επόμενη θέση > X ATOM → πάτα αμέσως
     "dh_fill_small": 40,             # μικρά γύρο: γέμισμα ≥ X% → πάτα
-    "dh_fill_big": 70,               # μεγάλα γύρο: γέμισμα ≥ X% → πάτα
+    "dh_fill_mid": 70,               # μεσαία γύρο: γέμισμα ≥ X% → πάτα
+    "dh_fill_big": 80,               # μεγάλα γύρο: γέμισμα ≥ X% → πάτα
+    "dh_mid_max": 11,                # γύρος με ≤ N θέσεις = μεσαίος
     "dh_small_max": 5,               # γύρος με ≤ N θέσεις θεωρείται μικρός
     "dh_safe_min": 3.0,              # μετά από X λεπτά πατάει ό,τι υπάρχει (λήξη 3-10 λεπτά)
     "sleep_enabled": False,    # ώρες ύπνου on/off
@@ -394,8 +396,12 @@ async def dh_check(chat_id, msg_id):
         return
     fill = cur / tot * 100
     inst_amt = settings.get("dh_instant_amount", 1.0)
-    small = tot <= settings.get("dh_small_max", 5)
-    fill_pct = settings.get("dh_fill_small", 40) if small else settings.get("dh_fill_big", 70)
+    if tot <= settings.get("dh_small_max", 5):
+        fill_pct = settings.get("dh_fill_small", 40)
+    elif tot <= settings.get("dh_mid_max", 11):
+        fill_pct = settings.get("dh_fill_mid", 70)
+    else:
+        fill_pct = settings.get("dh_fill_big", 80)
     age = time.time() - fresh.date.timestamp()
 
     if amount > inst_amt:
@@ -1071,7 +1077,9 @@ def build_submenu(kind):
     elif kind == "dh":
         amt = settings.get("dh_instant_amount", 1.0)
         fs = settings.get("dh_fill_small", 40)
-        fb = settings.get("dh_fill_big", 70)
+        fm = settings.get("dh_fill_mid", 70)
+        fb = settings.get("dh_fill_big", 80)
+        mmax = settings.get("dh_mid_max", 11)
         smax = settings.get("dh_small_max", 5)
         safe = settings.get("dh_safe_min", 3.0)
         on = "🟢 ON" if settings.get("dh_enabled", True) else "🔴 OFF"
@@ -1081,14 +1089,17 @@ def build_submenu(kind):
             f"{on}\n\n"
             "Πατάει η επόμενη θέση όταν:\n"
             f"• η θέση αξίζει πάνω από **{amt:g} ATOM**, ή\n"
-            f"• έχει γεμίσει **{fs}%** (μικρά, ≤{smax} θέσεις) ή **{fb}%** (μεγάλα), ή\n"
+            f"• γέμισμα: **{fs}%** (1-{smax} θέσεις), **{fm}%** ({smax+1}-{mmax}), **{fb}%** ({mmax+1}+), ή\n"
             f"• πέρασαν **{safe:g} λεπτά** (πριν τη λήξη)\n\n"
             "_Πάτησε για αλλαγή:_"
         )
         btns = [
             [Button.inline(f"💰 Ποσό: {amt:g} ATOM", b"set_dh_amt")],
-            [Button.inline(f"📊 Μικρά: {fs}%", b"set_dh_fs"), Button.inline(f"📊 Μεγάλα: {fb}%", b"set_dh_fill")],
+            [Button.inline(f"📊 Μικρά (1-{smax}): {fs}%", b"set_dh_fs")],
+            [Button.inline(f"📊 Μεσαία ({smax+1}-{mmax}): {fm}%", b"set_dh_fm")],
+            [Button.inline(f"📊 Μεγάλα ({mmax+1}+): {fb}%", b"set_dh_fill")],
             [Button.inline(f"🔢 Μικρό = έως {smax} θέσεις", b"set_dh_smax")],
+            [Button.inline(f"🔢 Μεσαίο = έως {mmax} θέσεις", b"set_dh_mmax")],
             [Button.inline(f"⏱️ Χρόνος: {safe:g} λεπτά", b"set_dh_time")],
             [Button.inline("← Πίσω", b"back")],
         ]
@@ -1153,6 +1164,8 @@ STATE_TO_SUBMENU = {
     "SET_DH_TIME": "dh",
     "SET_DH_FS": "dh",
     "SET_DH_SMAX": "dh",
+    "SET_DH_FM": "dh",
+    "SET_DH_MMAX": "dh",
     "SET_SLEEP_S": "sleep",
     "SET_SLEEP_E": "sleep",
     "ADD_KW": "keywords",
@@ -1582,6 +1595,14 @@ async def on_cb(event):
             user_states[event.sender_id] = "SET_DH_FS"
             await event.edit("📊 Γράψε το **γέμισμα για μικρά γύρο** (%):\n\n_Για γύρο με λίγες θέσεις, π.χ. 40._")
 
+        elif data == "set_dh_fm":
+            user_states[event.sender_id] = "SET_DH_FM"
+            await event.edit("📊 Γράψε το **γέμισμα για μεσαία γύρο** (%):\n\n_π.χ. 70_")
+
+        elif data == "set_dh_mmax":
+            user_states[event.sender_id] = "SET_DH_MMAX"
+            await event.edit("🔢 Γράψε **μέχρι πόσες θέσεις** είναι ένα μεσαίο γύρο:\n\n_π.χ. 11_")
+
         elif data == "set_dh_smax":
             user_states[event.sender_id] = "SET_DH_SMAX"
             await event.edit("🔢 Γράψε **μέχρι πόσες θέσεις** είναι ένα μικρό γύρο:\n\n_π.χ. 5_")
@@ -1731,6 +1752,30 @@ async def on_text(event):
                     changed = True
             except ValueError:
                 confirm_msg = "⚠️ Βάλε έγκυρο αριθμό (π.χ. 40)"
+        elif st == "SET_DH_FM":
+            try:
+                val = int(float(t.replace(",", ".").strip()))
+                if val < 1 or val > 100:
+                    confirm_msg = "⚠️ Βάλε ποσοστό 1-100"
+                else:
+                    settings["dh_fill_mid"] = val
+                    save_settings(settings)
+                    confirm_msg = f"✅ Diamond Hands γέμισμα μεσαίων: **{val}%**"
+                    changed = True
+            except ValueError:
+                confirm_msg = "⚠️ Βάλε έγκυρο αριθμό (π.χ. 70)"
+        elif st == "SET_DH_MMAX":
+            try:
+                val = int(float(t.replace(",", ".").strip()))
+                if val < settings.get("dh_small_max", 5) + 1 or val > 100:
+                    confirm_msg = f"⚠️ Βάλε αριθμό θέσεων {settings.get('dh_small_max', 5) + 1}-100"
+                else:
+                    settings["dh_mid_max"] = val
+                    save_settings(settings)
+                    confirm_msg = f"✅ Μεσαίο γύρο = έως **{val}** θέσεις"
+                    changed = True
+            except ValueError:
+                confirm_msg = "⚠️ Βάλε έγκυρο αριθμό (π.χ. 11)"
         elif st == "SET_DH_SMAX":
             try:
                 val = int(float(t.replace(",", ".").strip()))
