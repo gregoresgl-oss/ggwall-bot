@@ -238,8 +238,8 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
   </div>
 
   <div class="chart-card">
-    <div class="chart-hdr"><h3>Diamond Hands rounds</h3></div>
-    <div id="dh-rounds"></div>
+    <div class="chart-hdr"><h3>💎 Diamond Hands</h3></div>
+    <div id="dh-card"></div>
   </div>
 
   <div class="split">
@@ -538,30 +538,75 @@ function render(s1,s2,set1,set2,a1,a2){
   // Chart — daily claims bar chart (last 14 days)
   renderChart(s1, s2);
 
-  // Diamond Hands rounds (από τα δύο bots, χωρίς διπλά, πιο πρόσφατοι πρώτα)
+  // 💎 Diamond Hands — ενιαία κάρτα (σύνοψη, ιστόγραμμα λήξεων, πίνακας γύρων)
   const dhByRound = new Map();
   for (const r of [...(s1?.dh_log || []), ...(s2?.dh_log || [])]) {
     const p = dhByRound.get(r.round);
     if (!p) dhByRound.set(r.round, { ...r });
     else if (r.clicked) p.clicked = true;
   }
-  const dhRounds = [...dhByRound.values()].sort((a, b) => (b.start || "").localeCompare(a.start || "")).slice(0, 30);
-  const dhEl = document.getElementById("dh-rounds");
+  const dhAll = [...dhByRound.values()].sort((a, b) => (b.start || "").localeCompare(a.start || ""));
+  const dhEl = document.getElementById("dh-card");
   if (dhEl) {
-    if (!dhRounds.length) {
+    if (!dhAll.length) {
       dhEl.innerHTML = '<div class="cfg-help" style="padding:8px 0">Δεν υπάρχουν καταγεγραμμένοι γύροι ακόμα.</div>';
     } else {
-      const fmtT = iso => iso ? new Date(iso).toLocaleString("el-GR", {day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit"}) : "—";
-      const rows = dhRounds.map(r =>
-        `<tr style="border-top:0.5px solid var(--border)">` +
-        `<td>${fmtT(r.start)}</td><td>${fmtT(r.end)}</td>` +
-        `<td>${r.dur_min != null ? r.dur_min + " λ" : "—"}</td>` +
-        `<td>${r.spots ?? "—"}</td><td>${r.takers ?? r.taken_at_last_seen ?? "—"}</td>` +
-        `<td>${r.clicked ? '<span style="color:var(--green)">✓</span>' : "—"}</td></tr>`
-      ).join("");
-      dhEl.innerHTML = `<table style="width:100%;font-size:12px;border-collapse:collapse">` +
+      const filled = dhAll.filter(r => r.takers != null && r.spots != null && r.takers >= r.spots);
+      const timeEnded = dhAll.filter(r => r.takers != null && r.spots != null && r.takers < r.spots);
+      const unknown = dhAll.filter(r => r.takers == null).length;
+      const clicked = dhAll.filter(r => r.clicked).length;
+      const durs = timeEnded.map(r => r.dur_min).filter(x => x != null);
+      const avgDur = durs.length ? (durs.reduce((a, b) => a + b, 0) / durs.length).toFixed(1) + " λ" : "—";
+      const dhAtom = (s1?.dh_tokens?.ATOM || 0) + (s2?.dh_tokens?.ATOM || 0);
+      const dhWins = (s1?.dh_wins || 0) + (s2?.dh_wins || 0);
+
+      const tile = (label, val) =>
+        `<div style="flex:1;min-width:120px;padding:8px 10px;border:0.5px solid var(--border);border-radius:var(--radius)">` +
+        `<div style="font-size:11px;color:var(--dim)">${label}</div>` +
+        `<div style="font-size:18px;font-weight:500;margin-top:2px">${val}</div></div>`;
+      const tiles = `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">` + [
+        tile("Γύροι", dhAll.length),
+        tile("Γέμισαν", filled.length),
+        tile("Έληξαν από χρόνο", timeEnded.length),
+        tile("Άγνωστο (χωρίς λίστα)", unknown),
+        tile("Μέση διάρκεια λήξης", avgDur),
+        tile("Κλικ του bot", clicked),
+        tile("Νίκες", dhWins),
+        tile("Κέρδη ATOM", dhAtom.toFixed(4)),
+      ].join("") + `</div>`;
+
+      const bins = Array.from({ length: 8 }, (_, i) => ({ label: `${3 + i}–${4 + i}`, n: 0 }));
+      for (const r of timeEnded) {
+        if (r.dur_min == null) continue;
+        const b = Math.floor(r.dur_min) - 3;
+        if (b >= 0 && b < 8) bins[b].n++;
+      }
+      const maxN = Math.max(1, ...bins.map(b => b.n));
+      const hist =
+        `<div style="font-size:12px;color:var(--dim);margin-bottom:8px">Λήξεις γύρων που έληξαν από τον χρόνο, ανά λεπτό (3–10)</div>` +
+        `<div style="display:flex;align-items:flex-end;gap:6px;height:130px;margin-bottom:16px">` +
+        bins.map(b =>
+          `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">` +
+          `<div style="font-size:11px;color:var(--dim)">${b.n}</div>` +
+          `<div style="width:100%;height:${Math.round(b.n / maxN * 90)}px;background:var(--green);opacity:0.8;border-radius:2px"></div>` +
+          `<div style="font-size:10px;color:var(--dim);margin-top:4px">${b.label}</div></div>`
+        ).join("") + `</div>`;
+
+      const rows = dhAll.slice(0, 30).map(r => {
+        const taken = r.takers ?? r.taken_at_last_seen;
+        const dStart = r.start ? new Date(r.start).toLocaleString("el-GR", {day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit"}) : "—";
+        const dEnd = r.end ? new Date(r.end).toLocaleString("el-GR", {day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit"}) : "—";
+        return `<tr style="border-top:0.5px solid var(--border)">` +
+          `<td>${dStart}</td><td>${dEnd}</td>` +
+          `<td>${r.dur_min != null ? r.dur_min + " λ" : "—"}</td>` +
+          `<td>${r.spots ?? "—"}</td><td>${taken ?? "—"}</td>` +
+          `<td>${r.clicked ? '<span style="color:var(--green)">✓</span>' : "—"}</td></tr>`;
+      }).join("");
+      const table = `<table style="width:100%;font-size:12px;border-collapse:collapse">` +
         `<thead><tr style="color:var(--dim);text-align:left"><th>Αρχή</th><th>Λήξη</th><th>Διάρκεια</th><th>Θέσεις</th><th>Πάρθηκαν</th><th>Πάτησα</th></tr></thead>` +
         `<tbody>${rows}</tbody></table>`;
+
+      dhEl.innerHTML = tiles + hist + table;
     }
   }
 
