@@ -365,6 +365,7 @@ DH_TOOK_RE = re.compile(r'You took\s+#(\d+)\s+of\s+(\d+)', re.IGNORECASE)
 DH_REWARD_RE = re.compile(r'received\s+([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})', re.IGNORECASE)
 dh_clicked = set()      # rounds που ήδη πατήσαμε
 dh_timers = set()       # rounds με ενεργό timer ασφαλείας
+dh_last = {}           # τελευταία γνωστή κατάσταση γύρου {cur, tot}
 
 
 def dh_button_info(message):
@@ -392,6 +393,7 @@ async def dh_check(chat_id, msg_id):
     if not info:
         return
     btn, amount, cur, tot = info
+    dh_last[key] = {"cur": cur, "tot": tot}
     if tot <= 0 or cur >= tot:
         return
     fill = cur / tot * 100
@@ -435,6 +437,30 @@ async def dh_check(chat_id, msg_id):
         f"💎 **Diamond Hands**: πάτησα **{btn.text}**\n_({reason})_", link_preview=False)
 
 
+def dh_log_end(event):
+    # Καταγράφει τη λήξη γύρου ("[Distributed]") για ανάλυση μοτίβου.
+    key = f"{event.chat_id}_{event.message.id}"
+    log = stats.setdefault("dh_log", [])
+    if any(r.get("round") == key for r in log):
+        return
+    start = event.message.date
+    end = event.message.edit_date or start
+    st = dh_last.get(key, {})
+    dur = (end - start).total_seconds() / 60
+    log.append({
+        "round": key,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "dur_min": round(dur, 2),
+        "spots": st.get("tot"),
+        "taken_at_last_seen": st.get("cur"),
+        "clicked": key in dh_clicked,
+    })
+    stats["dh_log"] = log[-300:]
+    save_stats(stats)
+    logger.info(f"💎 DH round ended after {dur:.2f} min (spots={st.get('tot')}, taken={st.get('cur')})")
+
+
 async def _dh_timer(chat_id, msg_id, start_ts):
     # Ασφάλεια: μετά από DH_SAFE_MIN λεπτά ο γύρος μπορεί να λήξει ανά πάσα στιγμή.
     wait = settings.get("dh_safe_min", 3.0) * 60 - (time.time() - start_ts)
@@ -448,6 +474,9 @@ async def _dh_timer(chat_id, msg_id, start_ts):
 
 async def dh_handle(event):
     # Είσοδος για κάθε DH μήνυμα (νέο ή edited).
+    if "[distributed]" in (event.message.text or "").lower():
+        dh_log_end(event)
+        return
     if not settings.get("dh_enabled", True):
         return
     key = f"{event.chat_id}_{event.message.id}"
@@ -746,7 +775,7 @@ async def on_msg(event):
         msg_text = event.message.text or ""
 
         # 💎 Diamond Hands: ξεχωριστή διαδρομή (κάθε edit ελέγχεται, χωρίς dedup/channels)
-        if "diamond hands" in msg_text.lower() and dh_button_info(event.message):
+        if "diamond hands" in msg_text.lower() and (dh_button_info(event.message) or "[distributed]" in msg_text.lower()):
             await dh_handle(event)
             return
 
