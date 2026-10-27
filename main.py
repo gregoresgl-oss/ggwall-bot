@@ -393,7 +393,7 @@ async def dh_check(chat_id, msg_id):
     if not info:
         return
     btn, amount, cur, tot = info
-    dh_last[key] = {"cur": cur, "tot": tot}
+    dh_last[key] = {"cur": cur, "tot": tot, "start": fresh.date.isoformat(), "start_ts": fresh.date.timestamp()}
     if tot <= 0 or cur >= tot:
         return
     fill = cur / tot * 100
@@ -435,6 +435,39 @@ async def dh_check(chat_id, msg_id):
     logger.info(f"💎 DH click: {btn.text} · {reason}")
     await bot_client.send_message(owner_id,
         f"💎 **Diamond Hands**: πάτησα **{btn.text}**\n_({reason})_", link_preview=False)
+
+
+DH_TAKER_RE = re.compile(r'^\s*\d+\.\s+.*?\s([\d.]+)\s+\$?([A-Z][A-Z0-9]{1,15})', re.M)
+
+
+def dh_taken(event):
+    # Μήνυμα "Taken:" (λίστα νικητών) σε reply σε γύρο που παρακολουθούμε. True αν το χειριστήκαμε.
+    rkey = f"{event.chat_id}_{event.message.reply_to_msg_id}"
+    if rkey not in dh_last:
+        return False
+    st = dh_last[rkey]
+    amounts = [float(m.group(1)) for m in DH_TAKER_RE.finditer(event.message.text or "")]
+    end = event.message.date
+    dur = round((end.timestamp() - st.get("start_ts", end.timestamp())) / 60, 2)
+    log = stats.setdefault("dh_log", [])
+    rec = next((r for r in log if r.get("round") == rkey), None)
+    if rec is None:
+        rec = {
+            "round": rkey,
+            "start": st.get("start"),
+            "spots": st.get("tot"),
+            "taken_at_last_seen": st.get("cur"),
+            "clicked": rkey in dh_clicked,
+        }
+        log.append(rec)
+    rec["end"] = end.isoformat()
+    rec["dur_min"] = dur
+    rec["takers"] = len(amounts)
+    rec["taken_amounts"] = amounts
+    stats["dh_log"] = log[-300:]
+    save_stats(stats)
+    logger.info(f"💎 DH taken list: {len(amounts)} takers, ended after {dur:.2f} min")
+    return True
 
 
 def dh_log_end(event):
@@ -777,6 +810,10 @@ async def on_msg(event):
         # 💎 Diamond Hands: ξεχωριστή διαδρομή (κάθε edit ελέγχεται, χωρίς dedup/channels)
         if "diamond hands" in msg_text.lower() and (dh_button_info(event.message) or "[distributed]" in msg_text.lower()):
             await dh_handle(event)
+            return
+
+        # 💎 Λίστα νικητών ("Taken:") ως reply σε γύρο που παρακολουθούμε
+        if event.message.reply_to_msg_id and "taken:" in msg_text.lower() and dh_taken(event):
             return
 
         if not settings.get("channels"):

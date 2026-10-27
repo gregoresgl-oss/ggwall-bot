@@ -556,7 +556,7 @@ function render(s1,s2,set1,set2,a1,a2){
         `<tr style="border-top:0.5px solid var(--border)">` +
         `<td>${fmtT(r.start)}</td><td>${fmtT(r.end)}</td>` +
         `<td>${r.dur_min != null ? r.dur_min + " λ" : "—"}</td>` +
-        `<td>${r.spots ?? "—"}</td><td>${r.taken_at_last_seen ?? "—"}</td>` +
+        `<td>${r.spots ?? "—"}</td><td>${r.takers ?? r.taken_at_last_seen ?? "—"}</td>` +
         `<td>${r.clicked ? '<span style="color:var(--green)">✓</span>' : "—"}</td></tr>`
       ).join("");
       dhEl.innerHTML = `<table style="width:100%;font-size:12px;border-collapse:collapse">` +
