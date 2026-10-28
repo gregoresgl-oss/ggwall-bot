@@ -367,7 +367,8 @@ DH_TOOK_RE = re.compile(r'You took\s+#(\d+)\s+of\s+(\d+)', re.IGNORECASE)
 DH_REWARD_RE = re.compile(r'received\s+([\d,]+\.?\d*)\s*\$?([A-Z][A-Z0-9]{1,15})', re.IGNORECASE)
 dh_clicked = set()      # rounds που ήδη πατήσαμε
 dh_timers = set()       # rounds με ενεργό timer ασφαλείας
-dh_last = {}           # τελευταία γνωστή κατάσταση γύρου {cur, tot}
+dh_last = {}           # τελευταία γνωστή κατάσταση γύρου {cur, tot, marks}
+dh_click_reason = {}   # λόγος κάθε κλικ του bot
 
 
 def dh_tier(tot):
@@ -397,15 +398,18 @@ def dh_button_info(message):
 async def dh_check(chat_id, msg_id):
     # Αποφασίζει αν πατάμε την επόμενη θέση. Καλείται σε κάθε edit και από το timer ασφαλείας.
     key = f"{chat_id}_{msg_id}"
-    if key in dh_clicked:
-        return
     fresh = await user_client.get_messages(chat_id, ids=msg_id)
     info = dh_button_info(fresh)
     if not info:
         return
     btn, amount, cur, tot = info
-    dh_last[key] = {"cur": cur, "tot": tot, "start": fresh.date.isoformat(), "start_ts": fresh.date.timestamp()}
-    if tot <= 0 or cur >= tot:
+    prev = dh_last.get(key, {})
+    marks = prev.get("marks", [])
+    if not marks or marks[-1][0] != cur:
+        marks.append([cur, round(time.time(), 1)])
+    dh_last[key] = {"cur": cur, "tot": tot, "start": fresh.date.isoformat(),
+                    "start_ts": fresh.date.timestamp(), "marks": marks[-40:]}
+    if key in dh_clicked or tot <= 0 or cur >= tot:
         return
     fill = cur / tot * 100
     inst_amt = settings.get("dh_instant_amount", 1.0)
@@ -431,6 +435,7 @@ async def dh_check(chat_id, msg_id):
         return
 
     dh_clicked.add(key)
+    dh_click_reason[key] = reason
     if len(dh_clicked) > 300:
         dh_clicked.clear()
     try:
@@ -476,6 +481,8 @@ def dh_taken(event):
     rec["takers"] = len(amounts)
     rec["refunded"] = "refunded" in (event.message.text or "").lower()
     rec["taken_amounts"] = amounts
+    rec["click_reason"] = dh_click_reason.get(rkey)
+    rec["marks"] = st.get("marks", [])
     stats["dh_log"] = log[-300:]
     save_stats(stats)
     logger.info(f"💎 DH taken list: {len(amounts)} takers, ended after {dur:.2f} min")
@@ -501,6 +508,8 @@ def dh_log_end(event):
         "taken_at_last_seen": st.get("cur"),
         "clicked": key in dh_clicked,
         "refunded": "[refunded]" in (event.message.text or "").lower(),
+        "click_reason": dh_click_reason.get(key),
+        "marks": dh_last.get(key, {}).get("marks", []),
         "takers": 0 if "[refunded]" in (event.message.text or "").lower() else None,
     })
     stats["dh_log"] = log[-300:]

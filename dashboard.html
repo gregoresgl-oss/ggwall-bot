@@ -602,10 +602,10 @@ function render(s1,s2,set1,set2,a1,a2){
           `<td>${dStart}</td><td>${dEnd}</td>` +
           `<td>${r.dur_min != null ? r.dur_min + " λ" : "—"}</td>` +
           `<td>${r.spots ?? "—"}</td><td>${taken ?? "—"}</td>` +
-          `<td>${r.clicked ? '<span style="color:var(--green)">✓</span>' : "—"}</td></tr>`;
+          `<td>${r.clicked ? '<span style="color:var(--green)">✓</span>' : "—"}</td><td style="font-size:11px">${r.click_reason ?? "—"}</td></tr>`;
       }).join("");
       const table = `<table style="width:100%;font-size:12px;border-collapse:collapse">` +
-        `<thead><tr style="color:var(--dim);text-align:left"><th>Αρχή</th><th>Λήξη</th><th>Διάρκεια</th><th>Θέσεις</th><th>Πάρθηκαν</th><th>Πάτησα</th></tr></thead>` +
+        `<thead><tr style="color:var(--dim);text-align:left"><th>Αρχή</th><th>Λήξη</th><th>Διάρκεια</th><th>Θέσεις</th><th>Πάρθηκαν</th><th>Πάτησα</th><th>Λόγος</th></tr></thead>` +
         `<tbody>${rows}</tbody></table>`;
 
       dhEl.innerHTML = tiles + hist + table;
