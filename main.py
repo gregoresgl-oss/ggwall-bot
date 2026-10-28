@@ -73,7 +73,9 @@ DEFAULT_SETTINGS = {
     "dh_fill_big": 80,               # μεγάλα γύρο: γέμισμα ≥ X% → πάτα
     "dh_mid_max": 11,                # γύρος με ≤ N θέσεις = μεσαίος
     "dh_small_max": 5,               # γύρος με ≤ N θέσεις θεωρείται μικρός
-    "dh_safe_min": 3.0,              # μετά από X λεπτά πατάει ό,τι υπάρχει (λήξη 3-10 λεπτά)
+    "dh_safe_small": 3.0,            # μικρά γύρο: μετά από X λεπτά πατάει ό,τι υπάρχει
+    "dh_safe_mid": 3.0,              # μεσαία γύρο: μετά από X λεπτά πατάει ό,τι υπάρχει
+    "dh_safe_big": 3.0,              # μεγάλα γύρο: μετά από X λεπτά πατάει ό,τι υπάρχει
     "sleep_enabled": False,    # ώρες ύπνου on/off
     "sleep_start": 3,          # ώρα έναρξης ύπνου (0-23)
     "sleep_end": 7             # ώρα λήξης ύπνου (0-23)
@@ -368,6 +370,15 @@ dh_timers = set()       # rounds με ενεργό timer ασφαλείας
 dh_last = {}           # τελευταία γνωστή κατάσταση γύρου {cur, tot}
 
 
+def dh_tier(tot):
+    # Κατηγορία γύρου: small / mid / big, με βάση τον αριθμό θέσεων.
+    if tot <= settings.get("dh_small_max", 5):
+        return "small"
+    if tot <= settings.get("dh_mid_max", 11):
+        return "mid"
+    return "big"
+
+
 def dh_button_info(message):
     # Βρίσκει το κουμπί 'Take X ATOM (cur/tot)'. Επιστρέφει (button, amount, cur, tot) ή None.
     if not message or not message.buttons:
@@ -410,7 +421,7 @@ async def dh_check(chat_id, msg_id):
         reason = f"επόμενη θέση {amount:g} > {inst_amt:g} ATOM"
     elif fill >= fill_pct:
         reason = f"γέμισμα {fill:.0f}% ≥ {fill_pct}%"
-    elif age >= settings.get("dh_safe_min", 3.0) * 60:
+    elif age >= settings.get(f"dh_safe_{dh_tier(tot)}", 3.0) * 60:
         reason = f"ασφάλεια: {age / 60:.1f} λεπτά από την αρχή"
     else:
         return  # περιμένει
@@ -498,11 +509,16 @@ def dh_log_end(event):
 
 
 async def _dh_timer(chat_id, msg_id, start_ts):
-    # Ασφάλεια: μετά από DH_SAFE_MIN λεπτά ο γύρος μπορεί να λήξει ανά πάσα στιγμή.
-    wait = settings.get("dh_safe_min", 3.0) * 60 - (time.time() - start_ts)
-    if wait > 0:
-        await asyncio.sleep(wait)
+    # Ασφάλεια: μετά από X λεπτά (ανά κατηγορία) ο γύρος μπορεί να λήξει ανά πάσα στιγμή.
     try:
+        fresh = await user_client.get_messages(chat_id, ids=msg_id)
+        info = dh_button_info(fresh)
+        if not info:
+            return
+        tier = dh_tier(info[3])
+        wait = settings.get(f"dh_safe_{tier}", 3.0) * 60 - (time.time() - start_ts)
+        if wait > 0:
+            await asyncio.sleep(wait)
         await dh_check(chat_id, msg_id)
     except Exception as e:
         logger.error(f"DH timer: {e}")
@@ -1150,7 +1166,9 @@ def build_submenu(kind):
         fb = settings.get("dh_fill_big", 80)
         mmax = settings.get("dh_mid_max", 11)
         smax = settings.get("dh_small_max", 5)
-        safe = settings.get("dh_safe_min", 3.0)
+        ss = settings.get("dh_safe_small", 3.0)
+        sm = settings.get("dh_safe_mid", 3.0)
+        sb = settings.get("dh_safe_big", 3.0)
         on = "🟢 ON" if settings.get("dh_enabled", True) else "🔴 OFF"
         text = (
             "💎 **Diamond Hands**\n"
@@ -1159,7 +1177,8 @@ def build_submenu(kind):
             "Πατάει η επόμενη θέση όταν:\n"
             f"• η θέση αξίζει πάνω από **{amt:g} ATOM**, ή\n"
             f"• γέμισμα: **{fs}%** (1-{smax} θέσεις), **{fm}%** ({smax+1}-{mmax}), **{fb}%** ({mmax+1}+), ή\n"
-            f"• πέρασαν **{safe:g} λεπτά** (πριν τη λήξη)\n\n"
+            f"• πέρασαν X λεπτά ανάλογα με το μέγεθος (πριν τη λήξη):\n"
+            f"  μικρά **{ss:g}λ**, μεσαία **{sm:g}λ**, μεγάλα **{sb:g}λ**\n\n"
             "_Πάτησε για αλλαγή:_"
         )
         btns = [
@@ -1169,7 +1188,9 @@ def build_submenu(kind):
             [Button.inline(f"📊 Μεγάλα ({mmax+1}+): {fb}%", b"set_dh_fill")],
             [Button.inline(f"🔢 Μικρό = έως {smax} θέσεις", b"set_dh_smax")],
             [Button.inline(f"🔢 Μεσαίο = έως {mmax} θέσεις", b"set_dh_mmax")],
-            [Button.inline(f"⏱️ Χρόνος: {safe:g} λεπτά", b"set_dh_time")],
+            [Button.inline(f"⏱️ Μικρά: {ss:g} λεπτά", b"set_dh_time_small")],
+            [Button.inline(f"⏱️ Μεσαία: {sm:g} λεπτά", b"set_dh_time_mid")],
+            [Button.inline(f"⏱️ Μεγάλα: {sb:g} λεπτά", b"set_dh_time_big")],
             [Button.inline("← Πίσω", b"back")],
         ]
         return text, btns
@@ -1230,7 +1251,9 @@ STATE_TO_SUBMENU = {
     "SET_HV_THRESH": "high_value",
     "SET_DH_AMT": "dh",
     "SET_DH_FILL": "dh",
-    "SET_DH_TIME": "dh",
+    "SET_DH_TIME_SMALL": "dh",
+    "SET_DH_TIME_MID": "dh",
+    "SET_DH_TIME_BIG": "dh",
     "SET_DH_FS": "dh",
     "SET_DH_SMAX": "dh",
     "SET_DH_FM": "dh",
@@ -1656,8 +1679,9 @@ async def on_cb(event):
             user_states[event.sender_id] = "SET_DH_AMT"
             await event.edit("💎 Γράψε το **ποσό** (ATOM):\n\n_Αν η επόμενη θέση αξίζει πάνω από αυτό, πατάει αμέσως._\n_π.χ. 1_")
 
-        elif data == "set_dh_time":
-            user_states[event.sender_id] = "SET_DH_TIME"
+        elif data in ("set_dh_time_small", "set_dh_time_mid", "set_dh_time_big"):
+            tier = data.rsplit("_", 1)[1]
+            user_states[event.sender_id] = f"SET_DH_TIME_{tier.upper()}"
             await event.edit("⏱️ Γράψε τον **χρόνο ασφαλείας** (λεπτά):\n\n_Μετά από τόσα λεπτά πατάει ό,τι υπάρχει._\n_π.χ. 3_")
 
         elif data == "set_dh_fs":
@@ -1797,13 +1821,14 @@ async def on_text(event):
                     changed = True
             except ValueError:
                 confirm_msg = "⚠️ Βάλε έγκυρο αριθμό (π.χ. 30)"
-        elif st == "SET_DH_TIME":
+        elif st in ("SET_DH_TIME_SMALL", "SET_DH_TIME_MID", "SET_DH_TIME_BIG"):
+            key = {"SET_DH_TIME_SMALL": "dh_safe_small", "SET_DH_TIME_MID": "dh_safe_mid", "SET_DH_TIME_BIG": "dh_safe_big"}[st]
             try:
                 val = float(t.replace(",", ".").strip())
                 if val < 0.5 or val > 10:
                     confirm_msg = "⚠️ Βάλε χρόνο 0.5-10 λεπτά"
                 else:
-                    settings["dh_safe_min"] = val
+                    settings[key] = val
                     save_settings(settings)
                     confirm_msg = f"✅ Diamond Hands χρόνος ασφαλείας: **{val:g} λεπτά**"
                     changed = True
