@@ -554,6 +554,7 @@ function render(s1,s2,set1,set2,a1,a2){
       const filled = dhAll.filter(r => r.takers != null && r.spots != null && r.takers >= r.spots);
       const timeEnded = dhAll.filter(r => r.takers != null && r.spots != null && r.takers < r.spots);
       const unknown = dhAll.filter(r => r.takers == null).length;
+      const refunded = dhAll.filter(r => r.refunded).length;
       const clicked = dhAll.filter(r => r.clicked).length;
       const durs = timeEnded.map(r => r.dur_min).filter(x => x != null);
       const avgDur = durs.length ? (durs.reduce((a, b) => a + b, 0) / durs.length).toFixed(1) + " λ" : "—";
@@ -569,6 +570,7 @@ function render(s1,s2,set1,set2,a1,a2){
         tile("Γέμισαν", filled.length),
         tile("Έληξαν από χρόνο", timeEnded.length),
         tile("Άγνωστο (χωρίς λίστα)", unknown),
+        tile("Επιστροφές (κανείς δεν πήρε)", refunded),
         tile("Μέση διάρκεια λήξης", avgDur),
         tile("Κλικ του bot", clicked),
         tile("Νίκες", dhWins),

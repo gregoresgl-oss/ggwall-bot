@@ -463,6 +463,7 @@ def dh_taken(event):
     rec["end"] = end.isoformat()
     rec["dur_min"] = dur
     rec["takers"] = len(amounts)
+    rec["refunded"] = "refunded" in (event.message.text or "").lower()
     rec["taken_amounts"] = amounts
     stats["dh_log"] = log[-300:]
     save_stats(stats)
@@ -488,6 +489,8 @@ def dh_log_end(event):
         "spots": st.get("tot"),
         "taken_at_last_seen": st.get("cur"),
         "clicked": key in dh_clicked,
+        "refunded": "[refunded]" in (event.message.text or "").lower(),
+        "takers": 0 if "[refunded]" in (event.message.text or "").lower() else None,
     })
     stats["dh_log"] = log[-300:]
     save_stats(stats)
@@ -507,7 +510,7 @@ async def _dh_timer(chat_id, msg_id, start_ts):
 
 async def dh_handle(event):
     # Είσοδος για κάθε DH μήνυμα (νέο ή edited).
-    if "[distributed]" in (event.message.text or "").lower():
+    if "[distributed]" in (event.message.text or "").lower() or "[refunded]" in (event.message.text or "").lower():
         dh_log_end(event)
         return
     if not settings.get("dh_enabled", True):
@@ -808,12 +811,12 @@ async def on_msg(event):
         msg_text = event.message.text or ""
 
         # 💎 Diamond Hands: ξεχωριστή διαδρομή (κάθε edit ελέγχεται, χωρίς dedup/channels)
-        if "diamond hands" in msg_text.lower() and (dh_button_info(event.message) or "[distributed]" in msg_text.lower()):
+        if "diamond hands" in msg_text.lower() and (dh_button_info(event.message) or "[distributed]" in msg_text.lower() or "[refunded]" in msg_text.lower()):
             await dh_handle(event)
             return
 
         # 💎 Λίστα νικητών ("Taken:") ως reply σε γύρο που παρακολουθούμε
-        if event.message.reply_to_msg_id and "taken:" in msg_text.lower() and dh_taken(event):
+        if event.message.reply_to_msg_id and ("taken:" in msg_text.lower() or "refunded:" in msg_text.lower()) and dh_taken(event):
             return
 
         if not settings.get("channels"):
