@@ -407,8 +407,16 @@ async def dh_check(chat_id, msg_id):
     marks = prev.get("marks", [])
     if not marks or marks[-1][0] != cur:
         marks.append([cur, round(time.time(), 1)])
+    creator_id = prev.get("creator_id")
+    if creator_id is None and fresh.reply_to_msg_id:
+        try:
+            cmd = await user_client.get_messages(chat_id, ids=fresh.reply_to_msg_id)
+            creator_id = cmd.sender_id if cmd else None
+        except Exception:
+            creator_id = None
     dh_last[key] = {"cur": cur, "tot": tot, "start": fresh.date.isoformat(),
-                    "start_ts": fresh.date.timestamp(), "marks": marks[-40:]}
+                    "start_ts": fresh.date.timestamp(), "marks": marks[-40:],
+                    "creator_id": creator_id}
     if key in dh_clicked or tot <= 0 or cur >= tot:
         return
     fill = cur / tot * 100
@@ -456,6 +464,31 @@ async def dh_check(chat_id, msg_id):
 DH_TAKER_RE = re.compile(r'^\s*\d+\.\s+.*?\s([\d.]+)\s+\$?([A-Z][A-Z0-9]{1,15})', re.M)
 
 
+dh_creator_msgs = {}   # round key -> [{t, text}] μηνύματα του δημιουργού μέσα στον γύρο
+
+
+def dh_capture_creator(event):
+    # Καταγράφει μόνο τα μηνύματα του δημιουργού ενεργού γύρου. Δεν πατάει τίποτα.
+    text = event.message.text or ""
+    sid = event.sender_id
+    if not text or sid is None:
+        return
+    now = time.time()
+    chat = event.chat_id
+    for key, st in list(dh_last.items()):
+        if not key.startswith(f"{chat}_") or st.get("creator_id") != sid:
+            continue
+        if now - st.get("start_ts", now) > 15 * 60:
+            continue
+        lst = dh_creator_msgs.setdefault(key, [])
+        lst.append({"t": round(now, 1), "text": text[:200]})
+        dh_creator_msgs[key] = lst[-60:]
+        rec = next((r for r in stats.get("dh_log", []) if r.get("round") == key), None)
+        if rec is not None:
+            rec["creator_msgs"] = dh_creator_msgs[key]
+            save_stats(stats)
+
+
 def dh_taken(event):
     # Μήνυμα "Taken:" (λίστα νικητών) σε reply σε γύρο που παρακολουθούμε. True αν το χειριστήκαμε.
     rkey = f"{event.chat_id}_{event.message.reply_to_msg_id}"
@@ -476,12 +509,16 @@ def dh_taken(event):
             "clicked": rkey in dh_clicked,
         }
         log.append(rec)
+    if rec.get("end") and not rec.get("taken_at"):
+        rec["dist_at"] = rec["end"]
+    rec["taken_at"] = end.isoformat()
     rec["end"] = end.isoformat()
     rec["dur_min"] = dur
     rec["takers"] = len(amounts)
     rec["refunded"] = "refunded" in (event.message.text or "").lower()
     rec["taken_amounts"] = amounts
     rec["click_reason"] = dh_click_reason.get(rkey)
+    rec["creator_msgs"] = dh_creator_msgs.get(rkey, [])
     rec["marks"] = st.get("marks", [])
     stats["dh_log"] = log[-300:]
     save_stats(stats)
@@ -510,6 +547,7 @@ def dh_log_end(event):
         "refunded": "[refunded]" in (event.message.text or "").lower(),
         "click_reason": dh_click_reason.get(key),
         "marks": dh_last.get(key, {}).get("marks", []),
+        "creator_msgs": dh_creator_msgs.get(key, []),
         "takers": 0 if "[refunded]" in (event.message.text or "").lower() else None,
     })
     stats["dh_log"] = log[-300:]
@@ -834,6 +872,8 @@ async def on_msg(event):
             return
 
         msg_text = event.message.text or ""
+
+        dh_capture_creator(event)
 
         # 💎 Diamond Hands: ξεχωριστή διαδρομή (κάθε edit ελέγχεται, χωρίς dedup/channels)
         if "diamond hands" in msg_text.lower() and (dh_button_info(event.message) or "[distributed]" in msg_text.lower() or "[refunded]" in msg_text.lower()):
