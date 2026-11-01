@@ -468,25 +468,29 @@ dh_creator_msgs = {}   # round key -> [{t, text}] μηνύματα του δημ
 
 
 def dh_capture_creator(event):
-    # Καταγράφει μόνο τα μηνύματα του δημιουργού ενεργού γύρου. Δεν πατάει τίποτα.
+    # Καταγράφει μόνο τα μηνύματα του δημιουργού στον πιο πρόσφατο γύρο του. Δεν πατάει τίποτα.
     text = event.message.text or ""
     sid = event.sender_id
     if not text or sid is None:
         return
     now = time.time()
     chat = event.chat_id
-    for key, st in list(dh_last.items()):
-        if not key.startswith(f"{chat}_") or st.get("creator_id") != sid:
-            continue
-        if now - st.get("start_ts", now) > 15 * 60:
-            continue
-        lst = dh_creator_msgs.setdefault(key, [])
-        lst.append({"t": round(now, 1), "text": text[:200]})
-        dh_creator_msgs[key] = lst[-60:]
-        rec = next((r for r in stats.get("dh_log", []) if r.get("round") == key), None)
-        if rec is not None:
-            rec["creator_msgs"] = dh_creator_msgs[key]
-            save_stats(stats)
+    cands = [(st.get("start_ts", 0), key, st) for key, st in dh_last.items()
+             if key.startswith(f"{chat}_") and st.get("creator_id") == sid]
+    if not cands:
+        return
+    _, key, st = max(cands)
+    if now - st.get("start_ts", now) > 15 * 60:
+        return
+    rec = next((r for r in stats.get("dh_log", []) if r.get("round") == key), None)
+    if rec is not None and rec.get("taken_at"):
+        return  # ο γύρος έχει ήδη κλείσει με τη λίστα νικητών
+    lst = dh_creator_msgs.setdefault(key, [])
+    lst.append({"t": round(now, 1), "text": text[:200]})
+    dh_creator_msgs[key] = lst[-60:]
+    if rec is not None:
+        rec["creator_msgs"] = dh_creator_msgs[key]
+        save_stats(stats)
 
 
 def dh_taken(event):
